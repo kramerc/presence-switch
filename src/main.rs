@@ -16,7 +16,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let interrupt_token = token.clone();
     tokio::spawn(async move {
         match tokio::signal::ctrl_c().await {
-            Ok(_) => {},
+            Ok(_) => tracing::info!("Received Ctrl+C"),
             Err(e) => tracing::error!("Unable to listen for shutdown signal: {}", e),
         }
 

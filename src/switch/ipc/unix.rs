@@ -109,7 +109,9 @@ impl ClientOps for Client<UnixStream> {
                             response.truncate(n);
                             self.socket.write_all(&response).await?;
                         },
-                        Err(_) => todo!(),
+                        Err(e) => {
+                            tracing::error!("[Client {}] Error reading from {}: {}", client_id, name, e);
+                        },
                     }
 
                     discords.push(Discord {
@@ -186,23 +188,23 @@ impl ClientOps for Client<UnixStream> {
     }
 }
 
-pub async fn start(switch: Server) -> Result<(), Box<dyn Error>> {
-    let socket_path = switch.path()?;
+pub async fn start(server: Server) -> Result<(), Box<dyn Error>> {
+    let socket_path = server.path()?;
     let listener = UnixListener::bind(&socket_path)?;
 
-    let switch_clone = switch.clone();
+    let server_clone = server.clone();
     let handler = tokio::spawn(async move {
         tracing::info!("Listening for clients");
 
         loop {
-            let switch = switch_clone.clone();
+            let server = server_clone.clone();
             match listener.accept().await {
                 Ok((stream, _addr)) => {
                     let (client_tx, client_rx) = broadcast::channel::<Vec<u8>>(BUFFER_SIZE);
                     let (discord_tx, discord_rx) = broadcast::channel::<Vec<u8>>(BUFFER_SIZE);
 
                     let mut client = Client {
-                        server: switch,
+                        server,
                         socket: stream,
                         handshake: vec![],
                         client_id: None,
@@ -224,7 +226,7 @@ pub async fn start(switch: Server) -> Result<(), Box<dyn Error>> {
     });
 
     // Gracefully handle interrupt
-    switch.token.cancelled().await;
+    server.token.cancelled().await;
     fs::remove_file(&socket_path).await?;
     handler.abort();
 

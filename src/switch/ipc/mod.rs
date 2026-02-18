@@ -111,11 +111,11 @@ trait ClientOps {
 
 impl<S> Client<S> {
     pub fn connected(&self) {
-        tracing::info!("[Client {}] Connected", self.app_name());
+        tracing::info!("[Client: {}] Connected", self.app_name());
     }
 
     pub fn disconnected(&self) {
-        tracing::info!("[Client {}] Disconnected", self.app_name());
+        tracing::info!("[Client: {}] Disconnected", self.app_name());
     }
 
     /// Configures a client from a handshake

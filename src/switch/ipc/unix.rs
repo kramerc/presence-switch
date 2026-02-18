@@ -15,26 +15,26 @@ impl ClientOps for Client<UnixStream> {
 
         // Read data from switch client
         let mut buffer = [0u8; BUFFER_SIZE];
-        let client_id = self.client_id();
+        let app_name = self.app_name();
         loop {
             tokio::select! {
                 // Data from switch client -> forward to Discord broadcast channel
                 result = self.socket.read(&mut buffer) => {
                     match result {
                         Ok(0) => {
-                            tracing::debug!("[Client {}] Switch client closed", client_id);
+                            tracing::debug!("[Client: {}] Switch client closed", app_name);
                             break;
                         },
                         Ok(n) => {
                             let data = buffer[..n].to_vec();
-                            tracing::debug!("[Client {}] Received data from switch client: {}", client_id, String::from_utf8_lossy(&data[..n]));
+                            tracing::debug!("[Client: {}] Received data from switch client: {}", app_name, String::from_utf8_lossy(&data[..n]));
                             if let Err(e) = self.discord_tx.send(data) {
-                                tracing::error!("[Client {}] Failed to send switch client data to Discord broadcast channel: {}", client_id, e);
+                                tracing::error!("[Client: {}] Failed to send switch client data to Discord broadcast channel: {}", app_name, e);
                                 break;
                             }
                         },
                         Err(e) => {
-                            tracing::error!("Client {}] Error reading from switch client: {}", client_id, e);
+                            tracing::error!("[Client: {}] Error reading from switch client: {}", app_name, e);
                             break;
                         }
                     }
@@ -45,12 +45,12 @@ impl ClientOps for Client<UnixStream> {
                     match result {
                         Ok(data) => {
                             if let Err(e) = self.socket.write_all(&data).await {
-                                tracing::error!("[Client {}] Error writing to switch client: {}", client_id, e);
+                                tracing::error!("[Client: {}] Error writing to switch client: {}", app_name, e);
                                 break;
                             }
                         },
                         Err(e) => {
-                            tracing::error!("[Client {}] Error receiving from switch client broadcast channel: {}", client_id, e);
+                            tracing::error!("[Client: {}] Error receiving from switch client broadcast channel: {}", app_name, e);
                             break;
                         },
                     }
@@ -76,7 +76,7 @@ impl ClientOps for Client<UnixStream> {
         }
         handshake.truncate(n);
 
-        self.configure(handshake);
+        self.configure(handshake).await;
 
         Ok(())
     }
@@ -85,7 +85,7 @@ impl ClientOps for Client<UnixStream> {
         // Connect to Discord clients and pass the handshake received from the switch client
         let ipc_names = self.server.other_ipc_names();
         let mut discords = Vec::new();
-        let client_id = self.client_id().clone();
+        let app_name = self.app_name().clone();
 
         for name in ipc_names {
             let handshake = self.handshake.clone();
@@ -93,7 +93,7 @@ impl ClientOps for Client<UnixStream> {
 
             match UnixStream::connect(path).await {
                 Ok(mut stream) => {
-                    tracing::info!("[Client {}] Connected to Discord IPC {}", client_id, name);
+                    tracing::info!("[Client: {}] Connected to Discord IPC {}", app_name, name);
 
                     stream.writable().await?;
                     stream.write_all(&handshake).await?;
@@ -102,7 +102,7 @@ impl ClientOps for Client<UnixStream> {
                     let mut response = vec![0u8; BUFFER_SIZE];
                     match stream.try_read(&mut response) {
                         Ok(0) => {
-                            tracing::error!("[Client {}] {} closed connection after handshake", client_id, name);
+                            tracing::error!("[Client: {}] {} closed connection after handshake", app_name, name);
                         },
                         Ok(n) => {
                             // Forward handshake to switch client
@@ -110,7 +110,7 @@ impl ClientOps for Client<UnixStream> {
                             self.socket.write_all(&response).await?;
                         },
                         Err(e) => {
-                            tracing::error!("[Client {}] Error reading from {}: {}", client_id, name, e);
+                            tracing::error!("[Client: {}] Error reading from {}: {}", app_name, name, e);
                         },
                     }
 
@@ -120,7 +120,7 @@ impl ClientOps for Client<UnixStream> {
                     });
                 }
                 Err(e) => {
-                    tracing::error!("[Client {}] Failed to connect to {}: {}", client_id, name, e);
+                    tracing::error!("[Client: {}] Failed to connect to {}: {}", app_name, name, e);
                 },
             }
         }
@@ -133,7 +133,7 @@ impl ClientOps for Client<UnixStream> {
         for discord in discords {
             let client_tx = self.client_tx.clone();
             let mut discord_rx = self.discord_rx.resubscribe();
-            let client_id = client_id.clone();
+            let client_id = app_name.clone();
 
             tokio::spawn(async move {
                 let mut buffer = vec![0u8; BUFFER_SIZE];
@@ -146,19 +146,19 @@ impl ClientOps for Client<UnixStream> {
                         result = stream.read(&mut buffer) => {
                             match result {
                                 Ok(0) => {
-                                    tracing::debug!("[Client {}] Discord client {} closed", client_id, discord_name);
+                                    tracing::debug!("[Client: {}] Discord client {} closed", client_id, discord_name);
                                     break;
                                 }
                                 Ok(n) => {
                                     let data = buffer[..n].to_vec();
-                                    tracing::debug!("[Client {}] Received data from {}: {}", client_id, discord_name, String::from_utf8_lossy(&data[..n]));
+                                    tracing::debug!("[Client: {}] Received data from {}: {}", client_id, discord_name, String::from_utf8_lossy(&data[..n]));
                                     if let Err(e) = client_tx.send(data) {
-                                        tracing::error!("[Client {}] Error sending Discord data to switch client broadcast channel: {}", client_id, e);
+                                        tracing::error!("[Client: {}] Error sending Discord data to switch client broadcast channel: {}", client_id, e);
                                         break;
                                     }
                                 }
                                 Err(e) => {
-                                    tracing::error!("[Client {}] Error reading from {}: {}", client_id, discord_name, e);
+                                    tracing::error!("[Client: {}] Error reading from {}: {}", client_id, discord_name, e);
                                     break;
                                 }
                             }
@@ -169,12 +169,12 @@ impl ClientOps for Client<UnixStream> {
                             match result {
                                 Ok(data) => {
                                     if let Err(e) = stream.write_all(&data).await {
-                                        tracing::error!("[Client {}] Error writing to Discord: {}", client_id, e);
+                                        tracing::error!("[Client: {}] Error writing to Discord: {}", client_id, e);
                                         break;
                                     }
                                 },
                                 Err(e) => {
-                                    tracing::error!("[Client {}] Error receiving from Discord broadcast channel: {}", client_id, e);
+                                    tracing::error!("[Client: {}] Error receiving from Discord broadcast channel: {}", client_id, e);
                                     break;
                                 },
                             }
@@ -209,6 +209,7 @@ pub async fn start(server: Server) -> Result<(), Box<dyn Error>> {
                             socket: stream,
                             handshake: vec![],
                             client_id: None,
+                            app_data: None,
                             client_tx,
                             client_rx,
                             discord_tx,

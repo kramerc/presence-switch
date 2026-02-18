@@ -4,7 +4,7 @@ use regex::Regex;
 use tokio::sync::broadcast::{Receiver, Sender};
 use tokio_util::sync::CancellationToken;
 
-use crate::switch::ipc;
+use crate::{discord::{self, ApplicationRpcData}, switch::ipc};
 
 #[cfg(unix)]
 mod unix;
@@ -94,6 +94,7 @@ pub struct Client<S> {
     socket: S,
     handshake: Vec<u8>,
     client_id: Option<String>,
+    app_data: Option<ApplicationRpcData>,
 
     // Broadcast channels
     client_tx: Sender<Vec<u8>>,
@@ -110,15 +111,15 @@ trait ClientOps {
 
 impl<S> Client<S> {
     pub fn connected(&self) {
-        tracing::info!("[Client {}] Connected", self.client_id());
+        tracing::info!("[Client {}] Connected", self.app_name());
     }
 
     pub fn disconnected(&self) {
-        tracing::info!("[Client {}] Disconnected", self.client_id());
+        tracing::info!("[Client {}] Disconnected", self.app_name());
     }
 
     /// Configures a client from a handshake
-    pub fn configure(&mut self, handshake: Vec<u8>) {
+    pub async fn configure(&mut self, handshake: Vec<u8>) {
         self.handshake = handshake;
 
         let handshake_str = String::from_utf8_lossy(&self.handshake);
@@ -126,14 +127,27 @@ impl<S> Client<S> {
 
         let re = Regex::new(r#""client_id":"(\d+)""#).unwrap();
         if let Some(caps) = re.captures(&handshake_str) {
-            self.client_id = Some(caps[1].to_string());
+            let client_id = caps[1].to_string();
+            self.client_id = Some(client_id.clone());
+
+            self.app_data = match discord::application_rpc(&client_id).await {
+                Ok(data) => Some(data),
+                Err(e) => {
+                    tracing::error!("Unable to retrieve client application metadata from Discord: {}", e);
+                    None
+                },
+            };
         } else {
             tracing::warn!("Failed to parse client ID from handshake");
         }
     }
 
-    pub fn client_id(&self) -> String {
-        self.client_id.clone().unwrap_or(String::from("Unidentified"))
+    pub fn app_name(&self) -> String {
+        let client_id = self.client_id.clone().unwrap_or(String::from("Unidentified"));
+        match self.app_data.as_ref() {
+            Some(data) => data.name.clone(),
+            None => client_id,
+        }
     }
 }
 

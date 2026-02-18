@@ -1,5 +1,6 @@
 use tokio_util::sync::CancellationToken;
 
+mod discord;
 mod switch;
 
 #[tokio::main]

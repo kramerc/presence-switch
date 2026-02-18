@@ -61,14 +61,14 @@ impl Server {
         return windows::start(self).await;
     }
 
-    pub fn path(&self) -> Result<PathBuf, Box<dyn Error>> {
-        Ok(path(&self.name)?)
+    pub fn path(&self) -> PathBuf {
+        path(&self.name)
     }
 
     /// Gets names of IPCs that excludes our own
-    pub fn other_ipc_names(&self) -> Result<Vec<String>, Box<dyn Error>> {
-        let names = names()?;
-        Ok(names.into_iter().filter(|name| *name != self.name).collect::<Vec<_>>())
+    pub fn other_ipc_names(&self) -> Vec<String> {
+        let names = names();
+        names.into_iter().filter(|name| *name != self.name).collect::<Vec<_>>()
     }
 }
 
@@ -143,8 +143,8 @@ pub struct Discord<S> {
     socket: S
 }
 
-pub fn names() -> Result<Vec<String>, Box<dyn Error>> {
-    let dir = dir()?;
+pub fn names() -> Vec<String> {
+    let dir = dir();
     let mut pipes = Vec::new();
 
     for i in 0..10 {
@@ -156,11 +156,11 @@ pub fn names() -> Result<Vec<String>, Box<dyn Error>> {
         }
     }
 
-    Ok(pipes)
+    pipes
 }
 
 pub fn next_name() -> Result<String, Box<dyn Error>> {
-    let dir = dir()?;
+    let dir = dir();
 
     for i in 0..10 {
         let mut path = dir.clone();
@@ -174,24 +174,23 @@ pub fn next_name() -> Result<String, Box<dyn Error>> {
     Err(Box::new(ServerError::NoNameAvailable))
 }
 
-pub fn dir() -> Result<PathBuf, Box<dyn Error>> {
-    #[cfg(target_os = "linux")]
-    match std::env::var("XDG_RUNTIME_DIR") {
-        Ok(var) => Ok(PathBuf::from(var)),
-        Err(e) => {
-            tracing::error!("Could not determine runtime directory: {:?}", e);
-            Err(Box::new(e))
-        }
+pub fn dir() -> PathBuf {
+    #[cfg(unix)]
+    {
+        let path = ["XDG_RUNTIME_DIR", "TMPDIR", "TMP", "TEMP"]
+            .iter()
+            .find_map(|var| std::env::var(var).ok())
+            .unwrap_or(String::from("/tmp"));
+
+        PathBuf::from(path)
     }
 
-    // TODO: Other Unix variants
-
     #[cfg(windows)]
-    Ok(PathBuf::from(r"\\.\pipe"))
+    PathBuf::from(r"\\.\pipe")
 }
 
-pub fn path(name: &String) -> Result<PathBuf, Box<dyn Error>> {
-    let mut dir = ipc::dir()?;
+pub fn path(name: &String) -> PathBuf {
+    let mut dir = ipc::dir();
     dir.push(name.clone());
-    Ok(dir)
+    dir
 }

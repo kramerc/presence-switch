@@ -81,13 +81,13 @@ impl ClientOps for Client<NamedPipeServer> {
 
     async fn relay(&mut self) -> Result<(), Box<dyn Error>> {
         // Connect to Discord clients and pass the handshake received from the switch client
-        let ipc_names = self.server.other_ipc_names()?;
+        let ipc_names = self.server.other_ipc_names();
         let mut discords = Vec::new();
         let client_id = self.client_id().clone();
 
         for name in ipc_names {
             let handshake = self.handshake.clone();
-            let path = ipc::path(&name)?;
+            let path = ipc::path(&name);
 
             match ClientOptions::new().open(&path) {
                 Ok(mut client) => {
@@ -188,7 +188,7 @@ impl ClientOps for Client<NamedPipeServer> {
 
 pub async fn start(server: Server) -> Result<(), Box<dyn Error>> {
     let token = server.token.clone();
-    let socket_path = server.path()?;
+    let socket_path = server.path();
     let mut listener = ServerOptions::new()
         .first_pipe_instance(true)
         .create(&socket_path)?;

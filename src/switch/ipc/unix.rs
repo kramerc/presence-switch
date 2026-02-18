@@ -83,13 +83,13 @@ impl ClientOps for Client<UnixStream> {
 
     async fn relay(&mut self) -> Result<(), Box<dyn Error>> {
         // Connect to Discord clients and pass the handshake received from the switch client
-        let ipc_names = self.server.other_ipc_names()?;
+        let ipc_names = self.server.other_ipc_names();
         let mut discords = Vec::new();
         let client_id = self.client_id().clone();
 
         for name in ipc_names {
             let handshake = self.handshake.clone();
-            let path = ipc::path(&name)?;
+            let path = ipc::path(&name);
 
             match UnixStream::connect(path).await {
                 Ok(mut stream) => {
@@ -189,7 +189,7 @@ impl ClientOps for Client<UnixStream> {
 }
 
 pub async fn start(server: Server) -> Result<(), Box<dyn Error>> {
-    let socket_path = server.path()?;
+    let socket_path = server.path();
     let listener = UnixListener::bind(&socket_path)?;
 
     let server_clone = server.clone();

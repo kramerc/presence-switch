@@ -200,23 +200,25 @@ pub async fn start(server: Server) -> Result<(), Box<dyn Error>> {
             let server = server_clone.clone();
             match listener.accept().await {
                 Ok((stream, _addr)) => {
-                    let (client_tx, client_rx) = broadcast::channel::<Vec<u8>>(BUFFER_SIZE);
-                    let (discord_tx, discord_rx) = broadcast::channel::<Vec<u8>>(BUFFER_SIZE);
+                    tokio::spawn(async move {
+                        let (client_tx, client_rx) = broadcast::channel::<Vec<u8>>(BUFFER_SIZE);
+                        let (discord_tx, discord_rx) = broadcast::channel::<Vec<u8>>(BUFFER_SIZE);
 
-                    let mut client = Client {
-                        server,
-                        socket: stream,
-                        handshake: vec![],
-                        client_id: None,
-                        client_tx,
-                        client_rx,
-                        discord_tx,
-                        discord_rx,
-                    };
-                    match client.handle().await {
-                        Ok(_) => client.disconnected(),
-                        Err(e) => tracing::error!("Error handling client: {}", e),
-                    }
+                        let mut client = Client {
+                            server,
+                            socket: stream,
+                            handshake: vec![],
+                            client_id: None,
+                            client_tx,
+                            client_rx,
+                            discord_tx,
+                            discord_rx,
+                        };
+                        match client.handle().await {
+                            Ok(_) => client.disconnected(),
+                            Err(e) => tracing::error!("Error handling client: {}", e),
+                        }
+                    });
                 }
                 Err(e) => {
                     tracing::error!("Error accepting client: {}", e)

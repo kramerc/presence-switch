@@ -1,9 +1,29 @@
-#[cfg_attr(windows, path = "windows.rs")]
-mod server;
+use tokio_util::sync::CancellationToken;
+
+mod switch;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    server::start().await?;
+    let token = CancellationToken::new();
 
-    Ok(())
+    // Set up logging with tracing
+    let subscriber = tracing_subscriber::fmt()
+        .with_max_level(tracing::Level::DEBUG)
+        .finish();
+    tracing::subscriber::set_global_default(subscriber)?;
+
+    // Handle interrupts
+    let interrupt_token = token.clone();
+    tokio::spawn(async move {
+        match tokio::signal::ctrl_c().await {
+            Ok(_) => {},
+            Err(e) => tracing::error!("Unable to listen for shutdown signal: {}", e),
+        }
+
+        interrupt_token.cancel();
+    });
+
+    // Start the switch IPC server
+    let server = switch::ipc::Server::create(token.clone())?;
+    server.start().await
 }

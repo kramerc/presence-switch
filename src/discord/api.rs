@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use lazy_static::lazy_static;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use tokio::sync::RwLock;
 
 const BASE_URL: &str = "https://discord.com/api/v9";
@@ -16,14 +16,19 @@ pub struct ApplicationRpcData {
     pub name: String,
 }
 
+#[derive(Clone, Deserialize, Serialize)]
+pub struct Handshake {
+    pub v: i32,
+    pub client_id: String,
+}
+
 /// Fetches and caches metadata of an RPC application
 pub async fn application_rpc(client_id: &str) -> Result<ApplicationRpcData, reqwest::Error> {
     // Read cache
     {
         let cache = CACHE.read().await;
-        let cached_data = cache.get(client_id);
-        if cached_data.is_some() {
-            return Ok(cached_data.unwrap().clone());
+        if let Some(data) = cache.get(client_id) {
+            return Ok(data.clone());
         }
     }
 

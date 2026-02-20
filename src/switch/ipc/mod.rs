@@ -1,10 +1,11 @@
-use std::{error::Error, fmt, path::PathBuf};
+use std::{error::Error, path::PathBuf};
 
-use regex::Regex;
-use tokio::sync::broadcast::{Receiver, Sender};
+use tokio::sync::{broadcast, mpsc::{self}};
 use tokio_util::sync::CancellationToken;
 
-use crate::{discord::{self, ApplicationRpcData}, switch::ipc};
+use crate::{discord::{self, ipc::{Data, OpCode}}, switch::ipc::error::SwitchError};
+
+mod error;
 
 #[cfg(unix)]
 mod unix;
@@ -12,23 +13,7 @@ mod unix;
 #[cfg(windows)]
 mod windows;
 
-const BUFFER_SIZE: usize = 8192;
 const PREFERRED_NAME: &str = "discord-ipc-0";
-
-#[derive(Debug)]
-pub enum ServerError {
-    NoNameAvailable,
-}
-
-impl fmt::Display for ServerError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match self {
-            ServerError::NoNameAvailable => write!(f, "no name available"),
-        }
-    }
-}
-
-impl Error for ServerError {}
 
 #[derive(Clone)]
 pub struct Server {
@@ -37,8 +22,8 @@ pub struct Server {
 }
 
 impl Server {
-    pub fn create(token: CancellationToken) -> Result<Server, Box<dyn Error>> {
-        let name = ipc::next_name()?;
+    pub fn new(token: CancellationToken) -> Result<Server, Box<dyn Error>> {
+        let name = discord::ipc::next_name()?;
         tracing::info!("Creating switch IPC with name {}", name);
         if name != PREFERRED_NAME {
             // Most clients use the first IPC name, so warn the user if we couldn't use it
@@ -55,156 +40,162 @@ impl Server {
 
     pub async fn start(self) -> Result<(), Box<dyn Error>> {
         #[cfg(unix)]
-        return unix::start(self).await;
+        unix::start(self).await?;
 
         #[cfg(windows)]
-        return windows::start(self).await;
+        windows::start(self).await?;
+
+        Ok(())
     }
 
     pub fn path(&self) -> PathBuf {
-        path(&self.name)
+        discord::ipc::path(&self.name)
     }
 
     /// Gets names of IPCs that excludes our own
     pub fn other_ipc_names(&self) -> Vec<String> {
-        let names = names();
+        let names = discord::ipc::names();
         names.into_iter().filter(|name| *name != self.name).collect::<Vec<_>>()
     }
 }
 
-#[derive(Debug)]
-pub enum ClientError {
-    Closed,
-    NoDiscords,
+pub struct Client {
+    server: Server,
+    handshake: Option<discord::api::Handshake>,
+    app_data: Option<discord::api::ApplicationRpcData>,
+    switch_tx: mpsc::UnboundedSender<Data>,
+    discord_ipc_clients: Vec<discord::ipc::Client>,
+    discord_channel: (broadcast::Sender<Data>, broadcast::Receiver<Data>),
+    closed: bool,
 }
 
-impl fmt::Display for ClientError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match self {
-            ClientError::Closed => write!(f, "client is closed"),
-            ClientError::NoDiscords => write!(f, "no Discord IPCs found"),
+impl Client {
+    pub fn new(server: Server, tx: mpsc::UnboundedSender<Data>) -> Client {
+        let discord_channel = broadcast::channel::<Data>(16);
+
+        Client {
+            server,
+            handshake: None,
+            app_data: None,
+            switch_tx: tx,
+            discord_ipc_clients: vec![],
+            discord_channel,
+            closed: false,
         }
     }
-}
 
-impl Error for ClientError {}
-
-pub struct Client<S> {
-    server: Server,
-    socket: S,
-    handshake: Vec<u8>,
-    client_id: Option<String>,
-    app_data: Option<ApplicationRpcData>,
-
-    // Broadcast channels
-    client_tx: Sender<Vec<u8>>,
-    client_rx: Receiver<Vec<u8>>,
-    discord_tx: Sender<Vec<u8>>,
-    discord_rx: Receiver<Vec<u8>>,
-}
-
-trait ClientOps {
-    async fn handle(&mut self) -> Result<(), Box<dyn Error>>;
-    async fn handshake(&mut self) -> Result<(), Box<dyn Error>>;
-    async fn relay(&mut self) -> Result<(), Box<dyn Error>>;
-}
-
-impl<S> Client<S> {
     pub fn connected(&self) {
-        tracing::info!("[Client: {}] Connected", self.app_name());
+        tracing::info!("{} client connected", self.id());
     }
 
     pub fn disconnected(&self) {
-        tracing::info!("[Client: {}] Disconnected", self.app_name());
+        tracing::info!("{} client disconnected", self.id());
     }
 
-    /// Configures a client from a handshake
-    pub async fn configure(&mut self, handshake: Vec<u8>) {
-        self.handshake = handshake;
+    pub fn id(&self) -> String {
+        let client_id = match self.handshake.clone() {
+            Some(handshake) => handshake.client_id,
+            None => String::from("Unidentified"),
+        };
 
-        let handshake_str = String::from_utf8_lossy(&self.handshake);
-        tracing::debug!("Read handshake: {}", handshake_str);
-
-        let re = Regex::new(r#""client_id":"(\d+)""#).unwrap();
-        if let Some(caps) = re.captures(&handshake_str) {
-            let client_id = caps[1].to_string();
-            self.client_id = Some(client_id.clone());
-
-            self.app_data = match discord::application_rpc(&client_id).await {
-                Ok(data) => Some(data),
-                Err(e) => {
-                    tracing::error!("Unable to retrieve client application metadata from Discord: {}", e);
-                    None
-                },
-            };
-        } else {
-            tracing::warn!("Failed to parse client ID from handshake");
-        }
-    }
-
-    pub fn app_name(&self) -> String {
-        let client_id = self.client_id.clone().unwrap_or(String::from("Unidentified"));
         match self.app_data.as_ref() {
             Some(data) => data.name.clone(),
             None => client_id,
         }
     }
-}
 
-#[derive(Clone)]
-pub struct Discord<S> {
-    name: String,
-    socket: S
-}
+    pub async fn handle(&mut self, data: Data) -> Result<(), Box<dyn Error>> {
+        tracing::trace!("Handling {}", data.msg);
 
-pub fn names() -> Vec<String> {
-    let dir = dir();
-    let mut pipes = Vec::new();
-
-    for i in 0..10 {
-        let mut path = dir.clone();
-        let name = format!("discord-ipc-{}", i);
-        path.push(&name);
-        if path.as_path().exists() {
-            pipes.push(name);
+        match data.opcode {
+            OpCode::Handshake => self.handshake(data).await?,
+            OpCode::Ping => self.ping().await?,
+            OpCode::Close => self.close().await?,
+            _ => self.relay(data).await?
         }
+
+        Ok(())
     }
 
-    pipes
-}
+    async fn handshake(&mut self, data: Data) -> Result<(), Box<dyn Error>> {
+        let handshake: discord::api::Handshake = data.to_json_value()?;
+        let client_id = handshake.client_id.clone();
+        self.handshake = Some(handshake);
 
-pub fn next_name() -> Result<String, Box<dyn Error>> {
-    let dir = dir();
+        self.app_data = match crate::discord::api::application_rpc(&client_id).await {
+            Ok(data) => Some(data),
+            Err(e) => {
+                tracing::error!("Unable to retrieve client application metadata from Discord: {}", e);
+                None
+            },
+        };
 
-    for i in 0..10 {
-        let mut path = dir.clone();
-        let name = format!("discord-ipc-{}", i);
-        path.push(&name);
-        if !path.as_path().exists() {
-            return Ok(name);
+        self.connected();
+        self.setup_discord_ipc_clients().await?;
+
+        Ok(())
+    }
+
+    async fn ping(&mut self) -> Result<(), Box<dyn Error>> {
+        // Respond with pong
+        let pong = Data {
+            opcode: OpCode::Pong,
+            msg: String::from(format!("\"{}\"", OpCode::Pong))
+        };
+        self.switch_tx.send(pong)?;
+
+        Ok(())
+    }
+
+    async fn close(&mut self) -> Result<(), Box<dyn Error>> {
+        self.closed = true;
+
+        Ok(())
+    }
+
+    async fn relay(&mut self, data: Data) -> Result<(), Box<dyn Error>> {
+        //! Relay message to connected Discord clients
+        // Switch Client -> Discord IPC clients
+        tracing::trace!("Switch -> Discord: {}", data.msg);
+        let discord_tx = self.discord_channel.0.clone();
+        discord_tx.send(data)?;
+
+        Ok(())
+    }
+
+    pub async fn setup_discord_ipc_clients(&mut self) -> Result<(), Box<dyn Error>> {
+        let ipc_names = self.server.other_ipc_names();
+        let mut clients = Vec::new();
+
+        for name in ipc_names {
+            let client = discord::ipc::Client::new(&name, &self.discord_channel, self.switch_tx.clone());
+
+            if let Err(e) = client.connect().await {
+                tracing::error!("[Client: {}] Failed to connect to {}: {}", self.id(), client.name, e);
+                continue;
+            }
+
+            clients.push(client);
         }
+
+        if clients.is_empty() {
+            return Err(Box::new(SwitchError::NoDiscords));
+        }
+
+        self.discord_ipc_clients = clients;
+
+        // Send handshake to Discord clients
+        if let Some(handshake) = self.handshake.as_ref() {
+            let discord_tx = self.discord_channel.0.clone();
+            let data = Data {
+                opcode: OpCode::Handshake,
+                msg: serde_json::to_string(handshake)?
+            };
+            discord_tx.send(data)?;
+        } else {
+            tracing::warn!("Missing handshake data");
+        }
+
+        Ok(())
     }
-
-    Err(Box::new(ServerError::NoNameAvailable))
-}
-
-pub fn dir() -> PathBuf {
-    #[cfg(unix)]
-    {
-        let path = ["XDG_RUNTIME_DIR", "TMPDIR", "TMP", "TEMP"]
-            .iter()
-            .find_map(|var| std::env::var(var).ok())
-            .unwrap_or(String::from("/tmp"));
-
-        PathBuf::from(path)
-    }
-
-    #[cfg(windows)]
-    PathBuf::from(r"\\.\pipe")
-}
-
-pub fn path(name: &String) -> PathBuf {
-    let mut dir = ipc::dir();
-    dir.push(name.clone());
-    dir
 }

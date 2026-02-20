@@ -9,7 +9,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Set up logging with tracing
     let subscriber = tracing_subscriber::fmt()
-        .with_max_level(tracing::Level::DEBUG)
+        .with_max_level(tracing::Level::TRACE)
         .finish();
     tracing::subscriber::set_global_default(subscriber)?;
 
@@ -25,6 +25,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     });
 
     // Start the switch IPC server
-    let server = switch::ipc::Server::create(token.clone())?;
+    let server = switch::ipc::Server::new(token.clone())?;
     server.start().await
 }

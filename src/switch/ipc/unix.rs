@@ -76,7 +76,24 @@ async fn handle(server: Server, stream: UnixStream) -> Result<(), Box<dyn Error>
 
 pub async fn start(server: Server) -> Result<(), Box<dyn Error>> {
     let path = server.path();
-    let listener = UnixListener::bind(&path)?;
+    let listener = loop {
+        match UnixListener::bind(&path) {
+            Ok(listener) => break listener,
+            Err(e) if e.kind() == io::ErrorKind::AddrInUse => {
+                // Verify the socket path is dead before replacing it
+                match UnixStream::connect(&path).await {
+                    Ok(_) => return Err(Box::new(e)),
+                    Err(_) => {
+                        if let Err(e) = fs::remove_file(&path).await {
+                            return Err(Box::new(e));
+                        }
+                        continue;
+                    }
+                }
+            }
+            Err(e) => return Err(Box::new(e)),
+        }
+    };
     tracing::info!("Server listening for clients");
 
     loop {

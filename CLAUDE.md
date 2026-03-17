@@ -13,7 +13,7 @@ There are no tests in this project currently.
 
 ## What This Project Does
 
-presence-switch is a Discord Rich Presence IPC proxy. It sits between Discord RPC client applications and real Discord instances, acting as a multiplexing switch. Client apps connect to the switch (which binds `discord-ipc-0`), and the switch relays their RPC messages to all real Discord IPC servers (`discord-ipc-1` through `discord-ipc-9`).
+presence-switch is a Discord Rich Presence IPC proxy. It sits between Discord RPC client applications and real Discord instances, acting as a multiplexing switch. The switch binds the first available `discord-ipc-{0..9}` name (preferring `discord-ipc-0`), and relays RPC messages to all other existing `discord-ipc-*` sockets (excluding its own).
 
 ## Architecture
 

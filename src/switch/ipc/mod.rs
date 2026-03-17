@@ -140,7 +140,7 @@ impl Client {
         // Respond with pong
         let pong = Data {
             opcode: OpCode::Pong,
-            msg: String::from(format!("\"{}\"", OpCode::Pong))
+            msg: format!("\"{}\"", OpCode::Pong)
         };
         self.switch_tx.send(pong)?;
 

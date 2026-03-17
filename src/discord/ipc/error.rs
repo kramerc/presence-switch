@@ -19,7 +19,7 @@ impl std::error::Error for IpcError {}
 impl From<IpcError> for std::io::Error {
     fn from(value: IpcError) -> Self {
         match value {
-            IpcError::InvalidOpCode => std::io::Error::new(std::io::ErrorKind::Other, value),
+            IpcError::InvalidOpCode => std::io::Error::other(value),
             IpcError::NoNameAvailable => std::io::Error::new(std::io::ErrorKind::NotFound, value),
         }
     }

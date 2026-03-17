@@ -75,11 +75,11 @@ pub struct Client {
 }
 
 impl Client {
-    pub fn new(name: &String, channel: &(broadcast::Sender<Data>, broadcast::Receiver<Data>), switch_tx: mpsc::UnboundedSender<Data>) -> Client {
+    pub fn new(name: &str, channel: &(broadcast::Sender<Data>, broadcast::Receiver<Data>), switch_tx: mpsc::UnboundedSender<Data>) -> Client {
         let (tx, rx) = channel;
 
         Client {
-            name: name.clone(),
+            name: name.to_owned(),
             channel: (tx.clone(), rx.resubscribe()),
             switch_tx,
         }
@@ -146,9 +146,9 @@ pub fn dir() -> PathBuf {
     PathBuf::from(r"\\.\pipe")
 }
 
-pub fn path(name: &String) -> PathBuf {
+pub fn path(name: &str) -> PathBuf {
     let mut dir = dir();
-    dir.push(name.clone());
+    dir.push(name);
     dir
 }
 

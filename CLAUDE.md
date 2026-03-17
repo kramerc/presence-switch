@@ -7,9 +7,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - `cargo build` — build the project
 - `cargo run` — build and run
 - `cargo check` — type-check without producing a binary
+- `cargo test` — run all tests
+- `cargo test <test_name>` — run a single test by name
 - `cargo clippy` — lint
-
-There are no tests in this project currently.
 
 ## What This Project Does
 

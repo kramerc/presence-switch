@@ -24,3 +24,23 @@ impl From<IpcError> for std::io::Error {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn ipc_error_display() {
+        assert_eq!(format!("{}", IpcError::InvalidOpCode), "invalid opcode");
+        assert_eq!(format!("{}", IpcError::NoNameAvailable), "no name available");
+    }
+
+    #[test]
+    fn ipc_error_into_io_error() {
+        let io_err: std::io::Error = IpcError::InvalidOpCode.into();
+        assert_eq!(io_err.kind(), std::io::ErrorKind::Other);
+
+        let io_err: std::io::Error = IpcError::NoNameAvailable.into();
+        assert_eq!(io_err.kind(), std::io::ErrorKind::NotFound);
+    }
+}

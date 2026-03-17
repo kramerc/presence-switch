@@ -14,3 +14,13 @@ impl fmt::Display for SwitchError {
 }
 
 impl std::error::Error for SwitchError {}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn switch_error_display() {
+        assert_eq!(format!("{}", SwitchError::NoDiscords), "no Discord IPCs available");
+    }
+}

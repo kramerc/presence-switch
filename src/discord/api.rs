@@ -46,3 +46,27 @@ pub async fn application_rpc(client_id: &str) -> Result<ApplicationRpcData, reqw
 
     Ok(data)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn handshake_roundtrip() {
+        let handshake = Handshake {
+            v: 1,
+            client_id: String::from("123456789"),
+        };
+        let json = serde_json::to_string(&handshake).unwrap();
+        let parsed: Handshake = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed.v, 1);
+        assert_eq!(parsed.client_id, "123456789");
+    }
+
+    #[test]
+    fn application_rpc_data_deserialize() {
+        let json = r#"{"name":"My App"}"#;
+        let data: ApplicationRpcData = serde_json::from_str(json).unwrap();
+        assert_eq!(data.name, "My App");
+    }
+}

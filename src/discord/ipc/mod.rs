@@ -75,11 +75,11 @@ pub struct Client {
 }
 
 impl Client {
-    pub fn new(name: &String, channel: &(broadcast::Sender<Data>, broadcast::Receiver<Data>), switch_tx: mpsc::UnboundedSender<Data>) -> Client {
+    pub fn new(name: &str, channel: &(broadcast::Sender<Data>, broadcast::Receiver<Data>), switch_tx: mpsc::UnboundedSender<Data>) -> Client {
         let (tx, rx) = channel;
 
         Client {
-            name: name.clone(),
+            name: name.to_owned(),
             channel: (tx.clone(), rx.resubscribe()),
             switch_tx,
         }
@@ -146,8 +146,104 @@ pub fn dir() -> PathBuf {
     PathBuf::from(r"\\.\pipe")
 }
 
-pub fn path(name: &String) -> PathBuf {
+pub fn path(name: &str) -> PathBuf {
     let mut dir = dir();
-    dir.push(name.clone());
+    dir.push(name);
     dir
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn opcode_from_u32_valid() {
+        assert!(matches!(OpCode::from_u32(0), Ok(OpCode::Handshake)));
+        assert!(matches!(OpCode::from_u32(1), Ok(OpCode::Frame)));
+        assert!(matches!(OpCode::from_u32(2), Ok(OpCode::Close)));
+        assert!(matches!(OpCode::from_u32(3), Ok(OpCode::Ping)));
+        assert!(matches!(OpCode::from_u32(4), Ok(OpCode::Pong)));
+    }
+
+    #[test]
+    fn opcode_from_u32_invalid() {
+        assert!(matches!(OpCode::from_u32(5), Err(IpcError::InvalidOpCode)));
+        assert!(matches!(OpCode::from_u32(255), Err(IpcError::InvalidOpCode)));
+    }
+
+    #[test]
+    fn opcode_display() {
+        assert_eq!(format!("{}", OpCode::Handshake), "0");
+        assert_eq!(format!("{}", OpCode::Frame), "1");
+        assert_eq!(format!("{}", OpCode::Close), "2");
+        assert_eq!(format!("{}", OpCode::Ping), "3");
+        assert_eq!(format!("{}", OpCode::Pong), "4");
+    }
+
+    #[test]
+    fn data_len() {
+        let data = Data {
+            opcode: OpCode::Frame,
+            msg: String::from("hello"),
+        };
+        assert_eq!(data.len(), 5);
+    }
+
+    #[test]
+    fn data_to_buf_format() {
+        let data = Data {
+            opcode: OpCode::Frame,
+            msg: String::from("test"),
+        };
+        let buf = data.to_buf();
+        // 4 bytes opcode + 4 bytes length + 4 bytes message
+        assert_eq!(buf.len(), 12);
+
+        // Opcode: Frame = 1, little-endian
+        assert_eq!(&buf[0..4], &1u32.to_le_bytes());
+        // Length: 4, little-endian
+        assert_eq!(&buf[4..8], &4u32.to_le_bytes());
+        // Message payload
+        assert_eq!(&buf[8..], b"test");
+    }
+
+    #[test]
+    fn data_to_buf_empty_message() {
+        let data = Data {
+            opcode: OpCode::Handshake,
+            msg: String::new(),
+        };
+        let buf = data.to_buf();
+        assert_eq!(buf.len(), 8);
+        assert_eq!(&buf[0..4], &0u32.to_le_bytes());
+        assert_eq!(&buf[4..8], &0u32.to_le_bytes());
+    }
+
+    #[test]
+    fn data_to_json_value() {
+        let data = Data {
+            opcode: OpCode::Handshake,
+            msg: String::from(r#"{"v":1,"client_id":"123456"}"#),
+        };
+        let handshake: crate::discord::api::Handshake = data.to_json_value().unwrap();
+        assert_eq!(handshake.v, 1);
+        assert_eq!(handshake.client_id, "123456");
+    }
+
+    #[test]
+    fn data_to_json_value_invalid() {
+        let data = Data {
+            opcode: OpCode::Frame,
+            msg: String::from("not json"),
+        };
+        let result: Result<crate::discord::api::Handshake, _> = data.to_json_value();
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn path_appends_name() {
+        let name = String::from("discord-ipc-0");
+        let result = path(&name);
+        assert!(result.ends_with("discord-ipc-0"));
+    }
 }

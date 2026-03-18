@@ -10,12 +10,12 @@ This means a single RPC client can broadcast its presence to multiple Discord cl
 
 ## How it works
 
-```
-┌────────────┐         ┌──────────────────┐         ┌─────────────────┐
-│  RPC Client │ ──────► │  presence-switch  │ ──────► │  Discord #1     │
-│  (e.g. game)│         │  (discord-ipc-0)  │ ──────► │  Discord #2     │
-└────────────┘         └──────────────────┘ ──────► │  Discord #N     │
-                                                     └─────────────────┘
+```mermaid
+graph LR
+    A["RPC Client<br/>(e.g. game)"] --> B["presence-switch<br/>(discord-ipc-0)"]
+    B --> C["Discord #1"]
+    B --> D["Discord #2"]
+    B --> E["Discord #N"]
 ```
 
 1. The switch claims an available `discord-ipc-*` socket name

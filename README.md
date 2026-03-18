@@ -22,7 +22,7 @@ graph LR
 2. RPC clients connect to the switch thinking it's Discord
 3. The switch relays messages to all real Discord instances on other sockets
 
-The IPC binary protocol uses a simple format: 4-byte LE opcode + 4-byte LE length + UTF-8 JSON payload. The switch handles handshake, frame, close, ping, and pong opcodes.
+The IPC binary protocol uses a simple format: 4-byte LE opcode + 4-byte LE length + UTF-8 JSON payload. The switch processes handshake, ping, and close opcodes directly, and forwards all other opcodes (frame, pong) to Discord.
 
 ## Requirements
 

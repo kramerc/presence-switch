@@ -85,10 +85,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install mingw-w64 and msitools
+      - name: Install mingw-w64 and wixl
+        # Debian/Ubuntu split wixl out of msitools — install both.
         run: |
           sudo apt-get update
-          sudo apt-get install -y gcc-mingw-w64-x86-64 msitools
+          sudo apt-get install -y gcc-mingw-w64-x86-64 msitools wixl
 
       - uses: dtolnay/rust-toolchain@stable
         with:

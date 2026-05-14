@@ -3,6 +3,7 @@ name: Package
 on:
   push:
     branches: [main]
+    tags: ['v*']
   pull_request:
     branches: [main]
   workflow_dispatch:
@@ -28,13 +29,34 @@ jobs:
 
       - name: Compute version metadata
         id: ver
+        # On tag pushes (refs/tags/v*) emit a clean release (`Release: 1`) and
+        # validate that the tag matches Cargo.toml; on all other triggers emit
+        # a dev-build release tag with run number + short SHA.
         run: |
+          set -euo pipefail
           version=$(grep -E '^version *= *' Cargo.toml | head -n1 | cut -d'"' -f2)
           short_sha="${GITHUB_SHA::7}"
-          rpm_release="0.dev.${GITHUB_RUN_NUMBER}.git${short_sha}"
-          echo "version=$version"          >> "$GITHUB_OUTPUT"
-          echo "short_sha=$short_sha"      >> "$GITHUB_OUTPUT"
-          echo "rpm_release=$rpm_release"  >> "$GITHUB_OUTPUT"
+
+          if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
+            tag_version="${GITHUB_REF_NAME#v}"
+            if [ "$tag_version" != "$version" ]; then
+              echo "::error::Tag ${GITHUB_REF_NAME} does not match Cargo.toml version ${version}" >&2
+              exit 1
+            fi
+            rpm_release="1"
+            artifact_name="presence-switch-rpm-${GITHUB_REF_NAME}"
+            is_release="true"
+          else
+            rpm_release="0.dev.${GITHUB_RUN_NUMBER}.git${short_sha}"
+            artifact_name="presence-switch-rpm-${short_sha}"
+            is_release="false"
+          fi
+
+          echo "version=$version"             >> "$GITHUB_OUTPUT"
+          echo "short_sha=$short_sha"         >> "$GITHUB_OUTPUT"
+          echo "rpm_release=$rpm_release"     >> "$GITHUB_OUTPUT"
+          echo "artifact_name=$artifact_name" >> "$GITHUB_OUTPUT"
+          echo "is_release=$is_release"       >> "$GITHUB_OUTPUT"
 
       - name: Vendor crate dependencies
         run: cargo vendor vendor
@@ -71,7 +93,7 @@ jobs:
       - name: Upload RPM artifact
         uses: actions/upload-artifact@v4
         with:
-          name: presence-switch-rpm-${{ steps.ver.outputs.short_sha }}
+          name: ${{ steps.ver.outputs.artifact_name }}
           path: out/*.rpm
           if-no-files-found: error
 
@@ -102,10 +124,27 @@ jobs:
       - name: Compute version metadata
         id: ver
         run: |
+          set -euo pipefail
           version=$(grep -E '^version *= *' Cargo.toml | head -n1 | cut -d'"' -f2)
           short_sha="${GITHUB_SHA::7}"
-          echo "version=$version"     >> "$GITHUB_OUTPUT"
-          echo "short_sha=$short_sha" >> "$GITHUB_OUTPUT"
+
+          if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
+            tag_version="${GITHUB_REF_NAME#v}"
+            if [ "$tag_version" != "$version" ]; then
+              echo "::error::Tag ${GITHUB_REF_NAME} does not match Cargo.toml version ${version}" >&2
+              exit 1
+            fi
+            msi_filename="presence-switch-${version}.msi"
+            artifact_name="presence-switch-msi-${GITHUB_REF_NAME}"
+          else
+            msi_filename="presence-switch-${version}-${short_sha}.msi"
+            artifact_name="presence-switch-msi-${short_sha}"
+          fi
+
+          echo "version=$version"             >> "$GITHUB_OUTPUT"
+          echo "short_sha=$short_sha"         >> "$GITHUB_OUTPUT"
+          echo "msi_filename=$msi_filename"   >> "$GITHUB_OUTPUT"
+          echo "artifact_name=$artifact_name" >> "$GITHUB_OUTPUT"
 
       - name: Cross-compile Windows binary
         env:
@@ -121,12 +160,50 @@ jobs:
             --arch x64 \
             -D "Version=${{ steps.ver.outputs.version }}" \
             -D "ExePath=target/${WIN_TARGET}/release/presence-switch.exe" \
-            --output "target/wix/presence-switch-${{ steps.ver.outputs.version }}-${{ steps.ver.outputs.short_sha }}.msi" \
+            --output "target/wix/${{ steps.ver.outputs.msi_filename }}" \
             wix/main.wxs
 
       - name: Upload MSI artifact
         uses: actions/upload-artifact@v4
         with:
-          name: presence-switch-msi-${{ steps.ver.outputs.short_sha }}
+          name: ${{ steps.ver.outputs.artifact_name }}
           path: target/wix/*.msi
           if-no-files-found: error
+
+  release:
+    name: Publish GitHub Release
+    needs: [rpm, msi]
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download RPM artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: presence-switch-rpm-${{ github.ref_name }}
+          path: artifacts/
+
+      - name: Download MSI artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: presence-switch-msi-${{ github.ref_name }}
+          path: artifacts/
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          ls -la artifacts/
+          # --generate-notes auto-generates the body from commits since last
+          # release; --verify-tag fails fast if the tag isn't actually pushed.
+          gh release create "${GITHUB_REF_NAME}" \
+            --title "${GITHUB_REF_NAME}" \
+            --generate-notes \
+            --verify-tag \
+            artifacts/*.rpm artifacts/*.msi

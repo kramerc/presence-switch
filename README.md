@@ -37,7 +37,7 @@ cargo build --release
 
 ## Installing
 
-Pre-built dev artifacts are produced on every push to `main` by the [`package`](.github/workflows/package.yml) workflow. Grab the latest `.rpm` (Fedora/RHEL) or `.msi` (Windows) from the workflow run's Artifacts section.
+Tagged releases publish `.rpm` and `.msi` builds to the [Releases](https://github.com/kramerc/presence-switch/releases) page. For unreleased changes, the [`Package`](.github/workflows/package.yml) workflow also produces dev artifacts on every push to `main` and every PR — download them from the workflow run's Artifacts section.
 
 To build packages locally:
 
@@ -104,6 +104,21 @@ src/
         ├── unix.rs     # Unix domain socket connection
         └── windows.rs  # Named pipe connection
 ```
+
+## Releasing
+
+To cut a new release:
+
+1. Bump `version` in `Cargo.toml` (and run `cargo update -w` so `Cargo.lock` matches).
+2. Commit the bump and merge to `main`.
+3. Tag the commit on `main` matching the new version, e.g.:
+   ```sh
+   git tag v0.2.0
+   git push origin v0.2.0
+   ```
+4. The [`Package`](.github/workflows/package.yml) workflow runs on the tag, validates that the tag matches `Cargo.toml`, builds the `.rpm` and `.msi`, and publishes a GitHub Release with both attached and auto-generated notes from the commits since the previous release.
+
+If the tag version doesn't match `Cargo.toml`'s `version` field, both build jobs fail loudly before doing any work.
 
 ## License
 

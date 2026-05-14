@@ -13,25 +13,24 @@ env:
 
 jobs:
   rpm:
-    name: Build RPM (Fedora)
+    name: Build RPM
     runs-on: ubuntu-latest
-    container: fedora:latest
 
     steps:
-      - name: Install build dependencies
-        run: |
-          dnf install -y \
-            rust cargo \
-            rpm-build rpmdevtools systemd-rpm-macros \
-            git tar xz rsync
-
       - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Install cargo-generate-rpm
+        run: cargo install cargo-generate-rpm --locked
 
       - name: Compute version metadata
         id: ver
-        # On tag pushes (refs/tags/v*) emit a clean release (`Release: 1`) and
-        # validate that the tag matches Cargo.toml; on all other triggers emit
-        # a dev-build release tag with run number + short SHA.
+        # On tag pushes (refs/tags/v*) emit a clean release (`release = "1"`)
+        # and validate that the tag matches Cargo.toml; on all other triggers
+        # emit a dev-build release tag with run number + short SHA.
         run: |
           set -euo pipefail
           version=$(grep -E '^version *= *' Cargo.toml | head -n1 | cut -d'"' -f2)
@@ -45,57 +44,31 @@ jobs:
             fi
             rpm_release="1"
             artifact_name="presence-switch-rpm-${GITHUB_REF_NAME}"
-            is_release="true"
           else
             rpm_release="0.dev.${GITHUB_RUN_NUMBER}.git${short_sha}"
             artifact_name="presence-switch-rpm-${short_sha}"
-            is_release="false"
           fi
 
           echo "version=$version"             >> "$GITHUB_OUTPUT"
           echo "short_sha=$short_sha"         >> "$GITHUB_OUTPUT"
           echo "rpm_release=$rpm_release"     >> "$GITHUB_OUTPUT"
           echo "artifact_name=$artifact_name" >> "$GITHUB_OUTPUT"
-          echo "is_release=$is_release"       >> "$GITHUB_OUTPUT"
 
-      - name: Vendor crate dependencies
-        run: cargo vendor vendor
+      - name: Compile release binary
+        run: cargo build --release --locked
 
-      - name: Assemble source and vendor tarballs
+      - name: Generate RPM
         run: |
-          set -euo pipefail
-          rpmdev-setuptree
-          name="presence-switch"
-          version="${{ steps.ver.outputs.version }}"
-          srcdir="${name}-${version}"
-          stage="$(mktemp -d)"
-          # Source tarball mirrors the checkout but excludes build output, the
-          # vendor directory (shipped separately), and VCS metadata.
-          rsync -a \
-            --exclude='/target' \
-            --exclude='/vendor' \
-            --exclude='/.git' \
-            ./ "${stage}/${srcdir}/"
-          tar -C "${stage}" -czf "${HOME}/rpmbuild/SOURCES/${srcdir}.tar.gz" "${srcdir}"
-          tar -cJf "${HOME}/rpmbuild/SOURCES/${srcdir}-vendor.tar.xz" vendor
-
-      - name: Build RPM
-        run: |
-          rpmbuild -bb \
-            --define "_version ${{ steps.ver.outputs.version }}" \
-            --define "_release ${{ steps.ver.outputs.rpm_release }}" \
-            packaging/linux/rpm/presence-switch.spec
-
-      - name: Stage built RPMs
-        run: |
-          mkdir -p out
-          cp "${HOME}"/rpmbuild/RPMS/*/*.rpm out/
+          mkdir -p target/generate-rpm
+          cargo generate-rpm \
+            --output "target/generate-rpm/presence-switch-${{ steps.ver.outputs.version }}-${{ steps.ver.outputs.rpm_release }}.x86_64.rpm" \
+            -s 'release = "${{ steps.ver.outputs.rpm_release }}"'
 
       - name: Upload RPM artifact
         uses: actions/upload-artifact@v4
         with:
           name: ${{ steps.ver.outputs.artifact_name }}
-          path: out/*.rpm
+          path: target/generate-rpm/*.rpm
           if-no-files-found: error
 
   msi:

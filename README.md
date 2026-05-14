@@ -42,7 +42,7 @@ Tagged releases publish `.rpm` and `.msi` builds to the [Releases](https://githu
 To build packages locally:
 
 ```sh
-scripts/package.sh rpm   # → ~/rpmbuild/RPMS/x86_64/presence-switch-*.rpm
+scripts/package.sh rpm   # → target/generate-rpm/presence-switch-*.rpm
 scripts/package.sh msi   # → target/wix/presence-switch-*.msi (cross-compiled from Linux)
 scripts/package.sh all
 ```

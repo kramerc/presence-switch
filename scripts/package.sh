@@ -5,11 +5,11 @@
 # CI builds (or just inspect failures) without pushing.
 #
 # Usage:
-#   scripts/package.sh rpm      Build the .rpm into ~/rpmbuild/RPMS/
+#   scripts/package.sh rpm      Build the .rpm into target/generate-rpm/
 #   scripts/package.sh msi      Cross-compile the Windows binary and build the .msi
 #   scripts/package.sh all      Both
 #
-# Required for RPM:  rpm-build rpmdevtools systemd-rpm-macros rsync cargo
+# Required for RPM:  cargo, cargo-generate-rpm (cargo install cargo-generate-rpm)
 # Required for MSI:  mingw64-gcc msitools (provides wixl)
 #                    plus rustup target x86_64-pc-windows-gnu
 
@@ -41,43 +41,19 @@ need() { command -v "$1" >/dev/null 2>&1 || fail "$1 not found. $2"; }
 build_rpm() {
     log "Building RPM   name=${NAME} version=${VERSION} release=${LOCAL_RELEASE}"
 
-    need rpmbuild         "Install: sudo dnf install rpm-build"
-    need rpmdev-setuptree "Install: sudo dnf install rpmdevtools"
-    need rsync            "Install: sudo dnf install rsync"
-    need cargo            "Install rustup: https://rustup.rs"
+    need cargo              "Install rustup: https://rustup.rs"
+    need cargo-generate-rpm "Install: cargo install cargo-generate-rpm --locked"
 
-    rpmdev-setuptree
+    log "Compiling release binary"
+    cargo build --release --locked
 
-    log "Vendoring crate dependencies"
-    cargo vendor vendor >/dev/null
-    # Clean up the vendor tree at end of run so subsequent local `cargo build`
-    # invocations don't unknowingly operate against offline-vendored deps.
-    trap 'rm -rf vendor' RETURN
+    log "Generating RPM"
+    mkdir -p target/generate-rpm
+    cargo generate-rpm \
+        --output "target/generate-rpm/${NAME}-${VERSION}-${LOCAL_RELEASE}.x86_64.rpm" \
+        -s "release = \"${LOCAL_RELEASE}\""
 
-    log "Assembling source + vendor tarballs"
-    local srcdir="${NAME}-${VERSION}"
-    local stage; stage=$(mktemp -d)
-    rsync -a \
-        --exclude='/target' \
-        --exclude='/vendor' \
-        --exclude='/.git' \
-        ./ "${stage}/${srcdir}/"
-    tar -C "${stage}" -czf "${HOME}/rpmbuild/SOURCES/${srcdir}.tar.gz" "${srcdir}"
-    tar -cJf "${HOME}/rpmbuild/SOURCES/${srcdir}-vendor.tar.xz" vendor
-    rm -rf "${stage}"
-
-    log "Running rpmbuild"
-    # --nodeps: locally we trust whatever cargo/rust the user has (often
-    # rustup), instead of requiring the system `cargo` RPM that the spec's
-    # BuildRequires demands for CI builds inside a Fedora container.
-    rpmbuild -bb \
-        --nodeps \
-        --define "_version ${VERSION}" \
-        --define "_release ${LOCAL_RELEASE}" \
-        packaging/linux/rpm/presence-switch.spec
-
-    local built
-    built=$(find "${HOME}/rpmbuild/RPMS" -name "${NAME}-${VERSION}-${LOCAL_RELEASE}*.rpm" | head -n1)
+    local built="${ROOT}/target/generate-rpm/${NAME}-${VERSION}-${LOCAL_RELEASE}.x86_64.rpm"
     log "Built RPM: ${built}"
 }
 
@@ -119,11 +95,11 @@ Mirrors the steps run by .github/workflows/package.yml so you can reproduce
 CI builds (or just inspect failures) without pushing.
 
 Usage:
-  scripts/package.sh rpm      Build the .rpm into ~/rpmbuild/RPMS/
+  scripts/package.sh rpm      Build the .rpm into target/generate-rpm/
   scripts/package.sh msi      Cross-compile the Windows binary and build the .msi
   scripts/package.sh all      Both
 
-Required for RPM:  rpm-build rpmdevtools systemd-rpm-macros rsync cargo
+Required for RPM:  cargo, cargo-generate-rpm (cargo install cargo-generate-rpm)
 Required for MSI:  mingw64-gcc msitools (provides wixl)
                    plus rustup target x86_64-pc-windows-gnu
 EOF

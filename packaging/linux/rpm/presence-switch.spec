@@ -1,5 +1,8 @@
 Name:           presence-switch
-Version:        0.1.0
+# _version is passed via `rpmbuild --define "_version ..."` so the CI workflow
+# and local build script can thread Cargo.toml's version through without
+# requiring a manual edit here for each release.
+Version:        %{_version}
 # _release is overridden via `rpmbuild --define "_release ..."` for dev builds.
 # When unset (e.g. a future tagged release), it falls back to `1`.
 Release:        %{?_release}%{!?_release:1}%{?dist}

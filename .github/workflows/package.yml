@@ -82,6 +82,7 @@ jobs:
       - name: Build RPM
         run: |
           rpmbuild -bb \
+            --define "_version ${{ steps.ver.outputs.version }}" \
             --define "_release ${{ steps.ver.outputs.rpm_release }}" \
             packaging/linux/rpm/presence-switch.spec
 

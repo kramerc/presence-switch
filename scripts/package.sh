@@ -72,6 +72,7 @@ build_rpm() {
     # BuildRequires demands for CI builds inside a Fedora container.
     rpmbuild -bb \
         --nodeps \
+        --define "_version ${VERSION}" \
         --define "_release ${LOCAL_RELEASE}" \
         packaging/linux/rpm/presence-switch.spec
 

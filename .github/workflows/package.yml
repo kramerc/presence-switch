@@ -17,7 +17,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - uses: dtolnay/rust-toolchain@stable
 
@@ -65,7 +65,7 @@ jobs:
             -s 'release = "${{ steps.ver.outputs.rpm_release }}"'
 
       - name: Upload RPM artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: ${{ steps.ver.outputs.artifact_name }}
           path: target/generate-rpm/*.rpm
@@ -79,7 +79,7 @@ jobs:
       WIN_TARGET: x86_64-pc-windows-gnu
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Install mingw-w64 and wixl
         # Debian/Ubuntu split wixl out of msitools — install both.
@@ -138,7 +138,7 @@ jobs:
             wix/main.wxs
 
       - name: Upload MSI artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: ${{ steps.ver.outputs.artifact_name }}
           path: target/wix/*.msi
@@ -154,16 +154,16 @@ jobs:
       contents: write
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Download RPM artifact
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: presence-switch-rpm-${{ github.ref_name }}
           path: artifacts/
 
       - name: Download MSI artifact
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: presence-switch-msi-${{ github.ref_name }}
           path: artifacts/

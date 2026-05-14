@@ -1,0 +1,183 @@
+name: Package
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  rpm:
+    name: Build RPM
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Install cargo-generate-rpm
+        run: cargo install cargo-generate-rpm --locked
+
+      - name: Compute version metadata
+        id: ver
+        # On tag pushes (refs/tags/v*) emit a clean release (`release = "1"`)
+        # and validate that the tag matches Cargo.toml; on all other triggers
+        # emit a dev-build release tag with run number + short SHA.
+        run: |
+          set -euo pipefail
+          version=$(grep -E '^version *= *' Cargo.toml | head -n1 | cut -d'"' -f2)
+          short_sha="${GITHUB_SHA::7}"
+
+          if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
+            tag_version="${GITHUB_REF_NAME#v}"
+            if [ "$tag_version" != "$version" ]; then
+              echo "::error::Tag ${GITHUB_REF_NAME} does not match Cargo.toml version ${version}" >&2
+              exit 1
+            fi
+            rpm_release="1"
+            artifact_name="presence-switch-rpm-${GITHUB_REF_NAME}"
+          else
+            rpm_release="0.dev.${GITHUB_RUN_NUMBER}.git${short_sha}"
+            artifact_name="presence-switch-rpm-${short_sha}"
+          fi
+
+          echo "version=$version"             >> "$GITHUB_OUTPUT"
+          echo "short_sha=$short_sha"         >> "$GITHUB_OUTPUT"
+          echo "rpm_release=$rpm_release"     >> "$GITHUB_OUTPUT"
+          echo "artifact_name=$artifact_name" >> "$GITHUB_OUTPUT"
+
+      - name: Compile release binary
+        run: cargo build --release --locked
+
+      - name: Generate RPM
+        run: |
+          mkdir -p target/generate-rpm
+          cargo generate-rpm \
+            --output "target/generate-rpm/presence-switch-${{ steps.ver.outputs.version }}-${{ steps.ver.outputs.rpm_release }}.x86_64.rpm" \
+            -s 'release = "${{ steps.ver.outputs.rpm_release }}"'
+
+      - name: Upload RPM artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ steps.ver.outputs.artifact_name }}
+          path: target/generate-rpm/*.rpm
+          if-no-files-found: error
+
+  msi:
+    name: Build MSI (Linux cross-compile)
+    runs-on: ubuntu-latest
+
+    env:
+      WIN_TARGET: x86_64-pc-windows-gnu
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install mingw-w64 and wixl
+        # Debian/Ubuntu split wixl out of msitools — install both.
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-mingw-w64-x86-64 msitools wixl
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-gnu
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: windows-gnu
+
+      - name: Compute version metadata
+        id: ver
+        run: |
+          set -euo pipefail
+          version=$(grep -E '^version *= *' Cargo.toml | head -n1 | cut -d'"' -f2)
+          short_sha="${GITHUB_SHA::7}"
+
+          if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
+            tag_version="${GITHUB_REF_NAME#v}"
+            if [ "$tag_version" != "$version" ]; then
+              echo "::error::Tag ${GITHUB_REF_NAME} does not match Cargo.toml version ${version}" >&2
+              exit 1
+            fi
+            msi_filename="presence-switch-${version}.msi"
+            artifact_name="presence-switch-msi-${GITHUB_REF_NAME}"
+          else
+            msi_filename="presence-switch-${version}-${short_sha}.msi"
+            artifact_name="presence-switch-msi-${short_sha}"
+          fi
+
+          echo "version=$version"             >> "$GITHUB_OUTPUT"
+          echo "short_sha=$short_sha"         >> "$GITHUB_OUTPUT"
+          echo "msi_filename=$msi_filename"   >> "$GITHUB_OUTPUT"
+          echo "artifact_name=$artifact_name" >> "$GITHUB_OUTPUT"
+
+      - name: Cross-compile Windows binary
+        env:
+          # Rust auto-detects the mingw linker by triple, but be explicit so
+          # this doesn't silently regress if the apt package layout changes.
+          CARGO_TARGET_X86_64_PC_WINDOWS_GNU_LINKER: x86_64-w64-mingw32-gcc
+        run: cargo build --release --locked --target "${WIN_TARGET}"
+
+      - name: Build MSI with wixl
+        run: |
+          mkdir -p target/wix
+          wixl \
+            --arch x64 \
+            -D "Version=${{ steps.ver.outputs.version }}" \
+            -D "ExePath=target/${WIN_TARGET}/release/presence-switch.exe" \
+            --output "target/wix/${{ steps.ver.outputs.msi_filename }}" \
+            wix/main.wxs
+
+      - name: Upload MSI artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ steps.ver.outputs.artifact_name }}
+          path: target/wix/*.msi
+          if-no-files-found: error
+
+  release:
+    name: Publish GitHub Release
+    needs: [rpm, msi]
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Download RPM artifact
+        uses: actions/download-artifact@v8
+        with:
+          name: presence-switch-rpm-${{ github.ref_name }}
+          path: artifacts/
+
+      - name: Download MSI artifact
+        uses: actions/download-artifact@v8
+        with:
+          name: presence-switch-msi-${{ github.ref_name }}
+          path: artifacts/
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          ls -la artifacts/
+          # --generate-notes auto-generates the body from commits since last
+          # release; --verify-tag fails fast if the tag isn't actually pushed.
+          gh release create "${GITHUB_REF_NAME}" \
+            --title "${GITHUB_REF_NAME}" \
+            --generate-notes \
+            --verify-tag \
+            artifacts/*.rpm artifacts/*.msi

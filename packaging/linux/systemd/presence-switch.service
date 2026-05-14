@@ -1,0 +1,15 @@
+[Unit]
+Description=Discord Rich Presence IPC proxy
+Documentation=https://github.com/kramerc/presence-switch
+After=graphical-session.target
+PartOf=graphical-session.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/presence-switch
+Restart=on-failure
+RestartSec=3
+NoNewPrivileges=true
+
+[Install]
+WantedBy=default.target

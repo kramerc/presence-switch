@@ -49,15 +49,16 @@ scripts/package.sh all
 
 See `scripts/package.sh --help` for the toolchain requirements.
 
-### Linux (Fedora/RHEL)
+### Linux (any RPM-based distro with systemd)
 
 ```sh
-sudo dnf install ./presence-switch-*.rpm
+sudo dnf install ./presence-switch-*.rpm   # Fedora, RHEL, CentOS, Rocky, Alma
+sudo zypper install ./presence-switch-*.rpm   # openSUSE
 systemctl --user daemon-reload
 systemctl --user enable --now presence-switch
 ```
 
-The package installs a per-user systemd unit at `/usr/lib/systemd/user/presence-switch.service`. View logs with `journalctl --user -u presence-switch`.
+The package installs a per-user systemd unit at `/usr/lib/systemd/user/presence-switch.service`. View logs with `journalctl --user -u presence-switch`. CI builds the RPM against Ubuntu 24.04's glibc (2.39+), so the target distro needs glibc ≥ 2.39 — that covers Fedora 41+, RHEL 10+, recent openSUSE Tumbleweed, and similar.
 
 ### Windows
 

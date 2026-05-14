@@ -1,0 +1,130 @@
+name: package
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  rpm:
+    name: Build RPM (Fedora)
+    runs-on: ubuntu-latest
+    container: fedora:latest
+
+    steps:
+      - name: Install build dependencies
+        run: |
+          dnf install -y \
+            rust cargo \
+            rpm-build rpmdevtools systemd-rpm-macros \
+            git tar xz rsync
+
+      - uses: actions/checkout@v4
+
+      - name: Compute version metadata
+        id: ver
+        run: |
+          version=$(grep -E '^version *= *' Cargo.toml | head -n1 | cut -d'"' -f2)
+          short_sha="${GITHUB_SHA::7}"
+          rpm_release="0.dev.${GITHUB_RUN_NUMBER}.git${short_sha}"
+          echo "version=$version"          >> "$GITHUB_OUTPUT"
+          echo "short_sha=$short_sha"      >> "$GITHUB_OUTPUT"
+          echo "rpm_release=$rpm_release"  >> "$GITHUB_OUTPUT"
+
+      - name: Vendor crate dependencies
+        run: cargo vendor vendor
+
+      - name: Assemble source and vendor tarballs
+        run: |
+          set -euo pipefail
+          rpmdev-setuptree
+          name="presence-switch"
+          version="${{ steps.ver.outputs.version }}"
+          srcdir="${name}-${version}"
+          stage="$(mktemp -d)"
+          # Source tarball mirrors the checkout but excludes build output, the
+          # vendor directory (shipped separately), and VCS metadata.
+          rsync -a \
+            --exclude='/target' \
+            --exclude='/vendor' \
+            --exclude='/.git' \
+            ./ "${stage}/${srcdir}/"
+          tar -C "${stage}" -czf "${HOME}/rpmbuild/SOURCES/${srcdir}.tar.gz" "${srcdir}"
+          tar -cJf "${HOME}/rpmbuild/SOURCES/${srcdir}-vendor.tar.xz" vendor
+
+      - name: Build RPM
+        run: |
+          rpmbuild -bb \
+            --define "_release ${{ steps.ver.outputs.rpm_release }}" \
+            packaging/linux/rpm/presence-switch.spec
+
+      - name: Stage built RPMs
+        run: |
+          mkdir -p out
+          cp "${HOME}"/rpmbuild/RPMS/*/*.rpm out/
+
+      - name: Upload RPM artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: presence-switch-rpm-${{ steps.ver.outputs.short_sha }}
+          path: out/*.rpm
+          if-no-files-found: error
+
+  msi:
+    name: Build MSI (Linux cross-compile)
+    runs-on: ubuntu-latest
+
+    env:
+      WIN_TARGET: x86_64-pc-windows-gnu
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install mingw-w64 and msitools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-mingw-w64-x86-64 msitools
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-gnu
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: windows-gnu
+
+      - name: Compute version metadata
+        id: ver
+        run: |
+          version=$(grep -E '^version *= *' Cargo.toml | head -n1 | cut -d'"' -f2)
+          short_sha="${GITHUB_SHA::7}"
+          echo "version=$version"     >> "$GITHUB_OUTPUT"
+          echo "short_sha=$short_sha" >> "$GITHUB_OUTPUT"
+
+      - name: Cross-compile Windows binary
+        env:
+          # Rust auto-detects the mingw linker by triple, but be explicit so
+          # this doesn't silently regress if the apt package layout changes.
+          CARGO_TARGET_X86_64_PC_WINDOWS_GNU_LINKER: x86_64-w64-mingw32-gcc
+        run: cargo build --release --locked --target "${WIN_TARGET}"
+
+      - name: Build MSI with wixl
+        run: |
+          mkdir -p target/wix
+          wixl \
+            --arch x64 \
+            -D "ExePath=target/${WIN_TARGET}/release/presence-switch.exe" \
+            --output "target/wix/presence-switch-${{ steps.ver.outputs.version }}-${{ steps.ver.outputs.short_sha }}.msi" \
+            wix/main.wxs
+
+      - name: Upload MSI artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: presence-switch-msi-${{ steps.ver.outputs.short_sha }}
+          path: target/wix/*.msi
+          if-no-files-found: error

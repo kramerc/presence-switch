@@ -35,6 +35,34 @@ The IPC binary protocol uses a simple format: 4-byte LE opcode + 4-byte LE lengt
 cargo build --release
 ```
 
+## Installing
+
+Pre-built dev artifacts are produced on every push to `main` by the [`package`](.github/workflows/package.yml) workflow. Grab the latest `.rpm` (Fedora/RHEL) or `.msi` (Windows) from the workflow run's Artifacts section.
+
+To build packages locally:
+
+```sh
+scripts/package.sh rpm   # → ~/rpmbuild/RPMS/x86_64/presence-switch-*.rpm
+scripts/package.sh msi   # → target/wix/presence-switch-*.msi (cross-compiled from Linux)
+scripts/package.sh all
+```
+
+See `scripts/package.sh --help` for the toolchain requirements.
+
+### Linux (Fedora/RHEL)
+
+```sh
+sudo dnf install ./presence-switch-*.rpm
+systemctl --user daemon-reload
+systemctl --user enable --now presence-switch
+```
+
+The package installs a per-user systemd unit at `/usr/lib/systemd/user/presence-switch.service`. View logs with `journalctl --user -u presence-switch`.
+
+### Windows
+
+Double-click the `.msi` to install per-user (no admin prompt). The installer registers a Scheduled Task that launches presence-switch at logon for the installing user. Uninstall via *Settings → Apps & features*.
+
 ## Usage
 
 1. Close Discord or ensure `discord-ipc-0` is not taken
@@ -76,3 +104,7 @@ src/
         ├── unix.rs     # Unix domain socket connection
         └── windows.rs  # Named pipe connection
 ```
+
+## License
+
+[MIT](LICENSE) © Kramer Campbell

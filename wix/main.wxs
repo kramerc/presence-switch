@@ -1,0 +1,116 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  WiX 3 / wixl-compatible source.
+
+  Built with wixl from msitools (a GNOME project) rather than the official WiX
+  toolset. wixl is Linux-native, has no EULA, and produces a standard MSI from
+  a subset of WiX 3 schema. The official `wix` .NET tool would also work but
+  its v6+ releases require accepting the Open Source Maintenance Fee EULA, and
+  its path validator is hard-coded to Windows semantics so it fails on Linux.
+-->
+<Wix xmlns="http://schemas.microsoft.com/wix/2006/wi">
+
+  <Product Id="*"
+           Name="presence-switch"
+           UpgradeCode="7A3F2B91-6E5D-4C8A-9B12-D4E5F60718AB"
+           Manufacturer="Kramer Campbell"
+           Version="0.1.0"
+           Language="1033"
+           Codepage="1252">
+
+    <Package InstallerVersion="500"
+             Compressed="yes"
+             InstallScope="perUser"
+             Description="Discord Rich Presence IPC proxy"
+             Manufacturer="Kramer Campbell" />
+
+    <Media Id="1" Cabinet="presence_switch.cab" EmbedCab="yes" />
+
+    <MajorUpgrade DowngradeErrorMessage="A newer version of [ProductName] is already installed." />
+
+    <Property Id="ARPHELPLINK" Value="https://github.com/kramerc/presence-switch" />
+    <Property Id="ARPURLINFOABOUT" Value="https://github.com/kramerc/presence-switch" />
+    <Property Id="ARPNOMODIFY" Value="1" />
+    <Property Id="ARPNOREPAIR" Value="1" />
+
+    <Directory Id="TARGETDIR" Name="SourceDir">
+      <Directory Id="LocalAppDataFolder">
+        <Directory Id="APPLICATIONFOLDER" Name="PresenceSwitch">
+          <!-- ExePath is supplied via `wixl -D ExePath=...` so the same wxs
+               works regardless of whether the exe was built natively or cross-
+               compiled from Linux. -->
+          <Component Id="MainExecutable" Guid="*">
+            <File Id="PresenceSwitchExe"
+                  Source="$(var.ExePath)"
+                  KeyPath="yes" />
+            <RemoveFolder Id="RemoveAppFolder" On="uninstall" />
+          </Component>
+          <!-- HKCU keypath: required by Windows Installer for per-user
+               components installing to a user-profile location. Split into
+               its own component so the file component can use Guid="*". -->
+          <Component Id="MainExecutableRegistry" Guid="*">
+            <RegistryValue Root="HKCU"
+                           Key="Software\presence-switch"
+                           Name="Installed"
+                           Type="integer"
+                           Value="1"
+                           KeyPath="yes" />
+          </Component>
+          <!--
+            Per-user autostart via the HKCU Run key. This is the canonical
+            "launch on logon, no admin required" Windows mechanism (the same
+            one used by Discord, Steam, OneDrive). Scheduled Tasks with
+            /SC ONLOGON would be nicer (restart-on-failure, etc.) but the
+            schtasks /Create call requires admin even for the current user's
+            tasks, so it's incompatible with a per-user MSI.
+          -->
+          <Component Id="AutostartRegistry" Guid="*">
+            <RegistryValue Root="HKCU"
+                           Key="Software\Microsoft\Windows\CurrentVersion\Run"
+                           Name="presence-switch"
+                           Type="string"
+                           Value="[#PresenceSwitchExe]"
+                           KeyPath="yes" />
+          </Component>
+        </Directory>
+      </Directory>
+
+      <Directory Id="ProgramMenuFolder">
+        <Directory Id="ApplicationProgramsFolder" Name="PresenceSwitch">
+          <Component Id="ApplicationShortcut" Guid="*">
+            <Shortcut Id="ApplicationStartMenuShortcut"
+                      Name="presence-switch"
+                      Description="Discord Rich Presence IPC proxy"
+                      Target="[#PresenceSwitchExe]"
+                      WorkingDirectory="APPLICATIONFOLDER" />
+            <RemoveFolder Id="RemoveProgramsFolder" On="uninstall" />
+            <RegistryValue Root="HKCU"
+                           Key="Software\presence-switch"
+                           Name="ShortcutInstalled"
+                           Type="integer"
+                           Value="1"
+                           KeyPath="yes" />
+          </Component>
+        </Directory>
+      </Directory>
+    </Directory>
+
+    <Feature Id="MainFeature" Title="presence-switch" Level="1">
+      <ComponentRef Id="MainExecutable" />
+      <ComponentRef Id="MainExecutableRegistry" />
+      <ComponentRef Id="AutostartRegistry" />
+      <ComponentRef Id="ApplicationShortcut" />
+    </Feature>
+
+    <!--
+      No <UIRef> here. wixl ships the WixUI_Minimal dialog set but its dialog
+      .wxs files were updated to WiX 4 schema and use Control attributes
+      (DisableCondition, EnableCondition, ShowCondition) that wixl 0.106 does
+      not emit into the MSI Control table correctly, producing a libmsi
+      INVALID_FIELD error at MSI write time. Without a UIRef, Windows Installer
+      falls back to its built-in progress UI, which is acceptable for a small
+      per-user app.
+    -->
+
+  </Product>
+</Wix>

@@ -14,7 +14,7 @@
            Name="presence-switch"
            UpgradeCode="7A3F2B91-6E5D-4C8A-9B12-D4E5F60718AB"
            Manufacturer="Kramer Campbell"
-           Version="0.1.0"
+           Version="$(var.Version)"
            Language="1033"
            Codepage="1252">
 

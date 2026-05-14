@@ -61,7 +61,7 @@ The package installs a per-user systemd unit at `/usr/lib/systemd/user/presence-
 
 ### Windows
 
-Double-click the `.msi` to install per-user (no admin prompt). The installer registers a Scheduled Task that launches presence-switch at logon for the installing user. Uninstall via *Settings → Apps & features*.
+Double-click the `.msi` to install per-user (no admin prompt). The installer adds an entry under `HKCU\Software\Microsoft\Windows\CurrentVersion\Run` so presence-switch launches at every logon — inspect or disable it via *Task Manager → Startup apps*. Uninstall via *Settings → Apps & features*.
 
 ## Usage
 

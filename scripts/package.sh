@@ -15,9 +15,9 @@
 
 set -euo pipefail
 
-# Ensure tooling installed by rustup and `dotnet tool install --global` is
-# findable, regardless of whether the user has these dirs in their shell rc.
-export PATH="$HOME/.dotnet/tools:$HOME/.cargo/bin:$PATH"
+# Ensure tooling installed by rustup is findable, regardless of whether the
+# user has ~/.cargo/bin in their shell rc.
+export PATH="$HOME/.cargo/bin:$PATH"
 
 cd "$(dirname "$0")/.."
 ROOT=$(pwd)
@@ -50,6 +50,9 @@ build_rpm() {
 
     log "Vendoring crate dependencies"
     cargo vendor vendor >/dev/null
+    # Clean up the vendor tree at end of run so subsequent local `cargo build`
+    # invocations don't unknowingly operate against offline-vendored deps.
+    trap 'rm -rf vendor' RETURN
 
     log "Assembling source + vendor tarballs"
     local srcdir="${NAME}-${VERSION}"
@@ -96,8 +99,11 @@ build_msi() {
     log "Linking MSI"
     mkdir -p target/wix
     local out="target/wix/${NAME}-${VERSION}-${SHORT_SHA}.msi"
+    # -D Version threads the Cargo.toml version into the MSI's ProductVersion
+    # so MajorUpgrade detection stays correct as the project version bumps.
     wixl \
         --arch x64 \
+        -D "Version=${VERSION}" \
         -D "ExePath=target/x86_64-pc-windows-gnu/release/${NAME}.exe" \
         --output "${out}" \
         wix/main.wxs
@@ -105,7 +111,21 @@ build_msi() {
 }
 
 usage() {
-    sed -n '2,14p' "$0" | sed 's/^# \{0,1\}//'
+    cat <<EOF
+Local packaging script for presence-switch.
+
+Mirrors the steps run by .github/workflows/package.yml so you can reproduce
+CI builds (or just inspect failures) without pushing.
+
+Usage:
+  scripts/package.sh rpm      Build the .rpm into ~/rpmbuild/RPMS/
+  scripts/package.sh msi      Cross-compile the Windows binary and build the .msi
+  scripts/package.sh all      Both
+
+Required for RPM:  rpm-build rpmdevtools systemd-rpm-macros rsync cargo
+Required for MSI:  mingw64-gcc msitools (provides wixl)
+                   plus rustup target x86_64-pc-windows-gnu
+EOF
 }
 
 case "${1:-}" in

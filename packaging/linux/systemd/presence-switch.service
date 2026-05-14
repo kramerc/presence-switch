@@ -10,7 +10,6 @@ ExecStart=/usr/bin/presence-switch
 Restart=on-failure
 RestartSec=3
 NoNewPrivileges=true
-ProtectSystem=strict
 
 [Install]
 WantedBy=default.target

@@ -119,6 +119,7 @@ jobs:
           mkdir -p target/wix
           wixl \
             --arch x64 \
+            -D "Version=${{ steps.ver.outputs.version }}" \
             -D "ExePath=target/${WIN_TARGET}/release/presence-switch.exe" \
             --output "target/wix/presence-switch-${{ steps.ver.outputs.version }}-${{ steps.ver.outputs.short_sha }}.msi" \
             wix/main.wxs

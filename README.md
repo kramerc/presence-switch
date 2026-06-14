@@ -39,7 +39,7 @@ cargo build --release
 
 Tagged releases publish `.rpm` and `.msi` builds to the [Releases](https://github.com/kramerc/presence-switch/releases) page. For unreleased changes, the [`Package`](.github/workflows/package.yml) workflow also produces dev artifacts on every push to `main` and every PR — download them from the workflow run's Artifacts section.
 
-To build packages locally:
+To build packages locally on Linux:
 
 ```sh
 scripts/package.sh rpm   # → target/generate-rpm/presence-switch-*.rpm
@@ -48,6 +48,15 @@ scripts/package.sh all
 ```
 
 See `scripts/package.sh --help` for the toolchain requirements.
+
+To build the MSI natively on Windows (MSVC toolchain, no cross-compile):
+
+```powershell
+pwsh scripts/package.ps1   # → target/wix/presence-switch-*.msi
+```
+
+It links with the WiX v3 toolset, downloading it to `%LOCALAPPDATA%` on first
+run if neither `$env:WIX` nor `candle.exe` is found.
 
 ### Linux (any RPM-based distro with systemd)
 

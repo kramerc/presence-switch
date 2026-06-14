@@ -1,17 +1,59 @@
+// Don't spawn a console window on Windows for release builds. Debug builds keep
+// the console so logs are visible while developing.
+#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+
+use std::path::{Path, PathBuf};
+
 use tokio_util::sync::CancellationToken;
-use tray_icon::menu::{Menu, MenuId, MenuItem};
+use tracing_subscriber::fmt::writer::MakeWriterExt;
+use tray_icon::menu::{Menu, MenuId, MenuItem, PredefinedMenuItem};
 use tray_icon::{Icon, TrayIcon, TrayIconBuilder};
 use winit::{application::ApplicationHandler, event_loop::EventLoop};
 
 mod discord;
 mod switch;
 
+/// Path to the log file the tray "Open Log" item opens.
+fn log_path() -> PathBuf {
+    std::env::temp_dir().join("presence-switch.log")
+}
+
+/// Open the given path in the platform's default viewer.
+fn open_path(path: &Path) {
+    let result = {
+        #[cfg(target_os = "windows")]
+        {
+            std::process::Command::new("notepad").arg(path).spawn()
+        }
+        #[cfg(target_os = "macos")]
+        {
+            std::process::Command::new("open").arg(path).spawn()
+        }
+        #[cfg(all(unix, not(target_os = "macos")))]
+        {
+            std::process::Command::new("xdg-open").arg(path).spawn()
+        }
+    };
+
+    if let Err(e) = result {
+        tracing::error!("Failed to open {}: {}", path.display(), e);
+    }
+}
+
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let token = CancellationToken::new();
 
-    // Set up logging with tracing
+    // Set up logging with tracing. Write to a log file (viewable from the tray)
+    // and also to stdout, which is only visible in debug builds.
+    let log_file = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(log_path())?;
+    let make_file_writer = move || log_file.try_clone().expect("clone log file handle");
     let subscriber = tracing_subscriber::fmt()
         .with_max_level(tracing::Level::TRACE)
+        .with_ansi(false)
+        .with_writer(make_file_writer.and(std::io::stdout))
         .finish();
     tracing::subscriber::set_global_default(subscriber)?;
 
@@ -64,6 +106,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let mut app = App {
         tray: None,
+        open_log_id: None,
         quit_id: None,
         token: token.clone(),
     };
@@ -84,6 +127,7 @@ enum UserEvent {
 
 struct App {
     tray: Option<TrayIcon>,
+    open_log_id: Option<MenuId>,
     quit_id: Option<MenuId>,
     token: CancellationToken,
 }
@@ -96,8 +140,12 @@ impl ApplicationHandler<UserEvent> for App {
             let icon = Icon::from_rgba(vec![0; 32 * 32 * 4], 32, 32).unwrap();
 
             let menu = Menu::new();
+            let open_log_item = MenuItem::new("Open Log", true, None);
             let quit_item = MenuItem::new("Quit", true, None);
+            menu.append(&open_log_item).unwrap();
+            menu.append(&PredefinedMenuItem::separator()).unwrap();
             menu.append(&quit_item).unwrap();
+            self.open_log_id = Some(open_log_item.id().clone());
             self.quit_id = Some(quit_item.id().clone());
 
             let tray = TrayIconBuilder::new()
@@ -114,7 +162,9 @@ impl ApplicationHandler<UserEvent> for App {
     fn user_event(&mut self, event_loop: &winit::event_loop::ActiveEventLoop, event: UserEvent) {
         match event {
             UserEvent::MenuEvent(menu_event) => {
-                if self.quit_id.as_ref() == Some(&menu_event.id) {
+                if self.open_log_id.as_ref() == Some(&menu_event.id) {
+                    open_path(&log_path());
+                } else if self.quit_id.as_ref() == Some(&menu_event.id) {
                     // Trigger graceful shutdown; the runtime task watching the
                     // token will send UserEvent::Shutdown to exit the loop.
                     self.token.cancel();

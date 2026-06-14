@@ -31,9 +31,22 @@ param(
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 
+# Native commands (cargo, candle, light, git diff-index on a dirty tree) signal
+# status via exit code, and we inspect $LASTEXITCODE after each one. Opt out of
+# PowerShell 7.4+'s default of turning a non-zero native exit into a terminating
+# error under $ErrorActionPreference='Stop' so those checks stay the single
+# source of truth and an expected non-zero (e.g. `git diff-index` reporting a
+# dirty tree) doesn't abort the script.
+$PSNativeCommandUseErrorActionPreference = $false
+
 # Pin the WiX v3 release used when auto-downloading. 3.14.1 is the last v3.
 $WixVersion = '3.14.1'
 $WixZipUrl  = 'https://github.com/wixtoolset/wix3/releases/download/wix3141rtm/wix314-binaries.zip'
+
+# The MSI and the binary it wraps are both x64; build that target explicitly so
+# the architecture stays consistent on a non-x64 host (e.g. ARM64 Windows, where
+# `cargo build` would otherwise produce an aarch64 binary for an x64-marked MSI).
+$RustTarget = 'x86_64-pc-windows-msvc'
 
 function Write-Step([string]$Message) { Write-Host "==> $Message" -ForegroundColor Blue }
 function Write-Fail([string]$Message) { Write-Error $Message }
@@ -44,18 +57,27 @@ Set-Location $Root
 
 $Name = 'presence-switch'
 
-# Parse version from Cargo.toml ([package] version, first match).
-$Version = (Select-String -Path (Join-Path $Root 'Cargo.toml') -Pattern '^version\s*=\s*"([^"]+)"' |
-    Select-Object -First 1).Matches[0].Groups[1].Value
-if (-not $Version) { Write-Fail "Could not parse version from Cargo.toml" }
+# Parse version from Cargo.toml ([package] version, first match). Capture the
+# match first so a missing/renamed field yields the intended error rather than a
+# PropertyNotFoundException on $null under StrictMode.
+$VersionMatch = Select-String -Path (Join-Path $Root 'Cargo.toml') -Pattern '^version\s*=\s*"([^"]+)"' |
+    Select-Object -First 1
+if (-not $VersionMatch) { Write-Fail "Could not parse version from Cargo.toml" }
+$Version = $VersionMatch.Matches[0].Groups[1].Value
 
-# Short SHA with dirty marker, mirroring package.sh.
-$ShortSha = (& git rev-parse --short=7 HEAD 2>$null)
-if ($LASTEXITCODE -ne 0 -or -not $ShortSha) {
+# Short SHA with dirty marker, mirroring package.sh. git isn't a packaging
+# requirement (a source archive with vendored deps builds fine), so fall back to
+# 'nogit' when it's absent rather than letting CommandNotFoundException abort.
+if (-not (Get-Command git -ErrorAction SilentlyContinue)) {
     $ShortSha = 'nogit'
 } else {
-    & git diff-index --quiet HEAD -- 2>$null
-    if ($LASTEXITCODE -ne 0) { $ShortSha = "$ShortSha.dirty" }
+    $ShortSha = (& git rev-parse --short=7 HEAD 2>$null)
+    if ($LASTEXITCODE -ne 0 -or -not $ShortSha) {
+        $ShortSha = 'nogit'
+    } else {
+        & git diff-index --quiet HEAD -- 2>$null
+        if ($LASTEXITCODE -ne 0) { $ShortSha = "$ShortSha.dirty" }
+    }
 }
 
 function Get-WixBinDir {
@@ -95,11 +117,24 @@ function Build-Msi {
         Write-Fail "cargo not found. Install rustup: https://rustup.rs"
     }
 
-    Write-Step "Compiling release binary (x86_64-pc-windows-msvc)"
-    & cargo build --release --locked
+    # Ensure the x64 target is available (it's the default on an x64 host, but
+    # not on ARM64 Windows) before building against it explicitly. Only when
+    # rustup manages the toolchain; a standalone cargo will surface a clear
+    # error from the build itself if the target std is missing.
+    if (Get-Command rustup -ErrorAction SilentlyContinue) {
+        $installed = (& rustup target list --installed 2>$null)
+        if ($LASTEXITCODE -eq 0 -and $installed -notcontains $RustTarget) {
+            Write-Step "Adding rustup target $RustTarget"
+            & rustup target add $RustTarget
+            if ($LASTEXITCODE -ne 0) { Write-Fail "rustup target add $RustTarget failed" }
+        }
+    }
+
+    Write-Step "Compiling release binary ($RustTarget)"
+    & cargo build --release --locked --target $RustTarget
     if ($LASTEXITCODE -ne 0) { Write-Fail "cargo build failed" }
 
-    $exe = Join-Path $Root "target\release\$Name.exe"
+    $exe = Join-Path $Root "target\$RustTarget\release\$Name.exe"
     if (-not (Test-Path $exe)) { Write-Fail "Release binary not found at $exe" }
 
     $wixBin = Get-WixBinDir

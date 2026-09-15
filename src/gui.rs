@@ -74,7 +74,8 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
     // winit event loop, which must run on the main thread on most platforms.
     let runtime = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
-        .build()?;
+        .build()
+        .inspect_err(|error| tracing::error!("Failed to initialize Tokio runtime: {error}"))?;
 
     // Handle interrupts
     let interrupt_token = token.clone();
@@ -89,10 +90,13 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
 
     // Create the event loop before starting the server so a display setup
     // failure cannot skip cleanup of a running IPC server.
-    let event_loop = EventLoop::<UserEvent>::with_user_event().build()?;
+    let event_loop = EventLoop::<UserEvent>::with_user_event()
+        .build()
+        .inspect_err(|error| tracing::error!("Failed to initialize tray event loop: {error}"))?;
 
     // Start the switch IPC server on the runtime.
-    let server = switch::ipc::Server::new(token.clone())?;
+    let server = switch::ipc::Server::new(token.clone())
+        .inspect_err(|error| tracing::error!("Failed to initialize IPC server: {error}"))?;
     let server_token = token.clone();
     let server_handle =
         runtime.spawn(async move { run_server(server_token, server.start()).await });
@@ -119,7 +123,9 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
         startup_error: None,
         token: token.clone(),
     };
-    let event_loop_result = event_loop.run_app(&mut app);
+    let event_loop_result = event_loop
+        .run_app(&mut app)
+        .inspect_err(|error| tracing::error!("Tray event loop failed: {error}"));
 
     // The event loop has exited; ensure background tasks wind down and wait for
     // the server to finish before tearing the runtime down.

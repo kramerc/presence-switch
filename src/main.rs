@@ -116,14 +116,21 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         tray: None,
         open_log_id: None,
         quit_id: None,
+        startup_error: None,
         token: token.clone(),
     };
-    event_loop.run_app(&mut app)?;
+    let event_loop_result = event_loop.run_app(&mut app);
 
     // The event loop has exited; ensure background tasks wind down and wait for
     // the server to finish before tearing the runtime down.
     token.cancel();
-    let _ = runtime.block_on(server_handle);
+    let server_result = runtime.block_on(server_handle);
+
+    if let Some(error) = app.startup_error {
+        return Err(error);
+    }
+    event_loop_result?;
+    server_result?;
 
     Ok(())
 }
@@ -137,33 +144,45 @@ struct App {
     tray: Option<TrayIcon>,
     open_log_id: Option<MenuId>,
     quit_id: Option<MenuId>,
+    startup_error: Option<Box<dyn std::error::Error>>,
     token: CancellationToken,
+}
+
+impl App {
+    fn create_tray(&mut self) -> Result<(), Box<dyn std::error::Error>> {
+        let icon = load_tray_icon()?;
+        let menu = Menu::new();
+        let open_log_item = MenuItem::new("Open Log", true, None);
+        let quit_item = MenuItem::new("Quit", true, None);
+        menu.append(&open_log_item)?;
+        menu.append(&PredefinedMenuItem::separator())?;
+        menu.append(&quit_item)?;
+
+        let tray = TrayIconBuilder::new()
+            .with_tooltip("presence-switch")
+            .with_icon(icon)
+            .with_menu(Box::new(menu))
+            .build()?;
+
+        // Only publish the tray state once every setup step has succeeded.
+        self.open_log_id = Some(open_log_item.id().clone());
+        self.quit_id = Some(quit_item.id().clone());
+        self.tray = Some(tray);
+        Ok(())
+    }
 }
 
 impl ApplicationHandler<UserEvent> for App {
     fn resumed(&mut self, event_loop: &winit::event_loop::ActiveEventLoop) {
         event_loop.set_control_flow(winit::event_loop::ControlFlow::Wait);
 
-        if self.tray.is_none() {
-            let icon = load_tray_icon().expect("load embedded tray icon");
-
-            let menu = Menu::new();
-            let open_log_item = MenuItem::new("Open Log", true, None);
-            let quit_item = MenuItem::new("Quit", true, None);
-            menu.append(&open_log_item).unwrap();
-            menu.append(&PredefinedMenuItem::separator()).unwrap();
-            menu.append(&quit_item).unwrap();
-            self.open_log_id = Some(open_log_item.id().clone());
-            self.quit_id = Some(quit_item.id().clone());
-
-            let tray = TrayIconBuilder::new()
-                .with_tooltip("presence-switch")
-                .with_icon(icon)
-                .with_menu(Box::new(menu))
-                .build()
-                .unwrap();
-
-            self.tray = Some(tray);
+        if self.tray.is_none() && self.startup_error.is_none() {
+            if let Err(error) = self.create_tray() {
+                tracing::error!("Failed to initialize tray: {error}");
+                self.startup_error = Some(error);
+                self.token.cancel();
+                event_loop.exit();
+            }
         }
     }
 

@@ -13,6 +13,14 @@ use winit::{application::ApplicationHandler, event_loop::EventLoop};
 mod discord;
 mod switch;
 
+const TRAY_ICON: &[u8] = include_bytes!("../assets/icons/tray.png");
+
+fn load_tray_icon() -> Result<Icon, Box<dyn std::error::Error>> {
+    let image = image::load_from_memory(TRAY_ICON)?.into_rgba8();
+    let (width, height) = image.dimensions();
+    Ok(Icon::from_rgba(image.into_raw(), width, height)?)
+}
+
 /// Path to the log file the tray "Open Log" item opens.
 fn log_path() -> PathBuf {
     std::env::temp_dir().join("presence-switch.log")
@@ -137,7 +145,7 @@ impl ApplicationHandler<UserEvent> for App {
         event_loop.set_control_flow(winit::event_loop::ControlFlow::Wait);
 
         if self.tray.is_none() {
-            let icon = Icon::from_rgba(vec![0; 32 * 32 * 4], 32, 32).unwrap();
+            let icon = load_tray_icon().expect("load embedded tray icon");
 
             let menu = Menu::new();
             let open_log_item = MenuItem::new("Open Log", true, None);

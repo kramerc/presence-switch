@@ -7,6 +7,7 @@ description = "Discord Rich Presence IPC proxy that multiplexes RPC messages acr
 repository = "https://github.com/kramerc/presence-switch"
 
 [dependencies]
+image = { version = "0.25.8", default-features = false, features = ["png"] }
 lazy_static = "1.5.0"
 reqwest = { version = "0.13.4", features = ["json"] }
 serde = { version = "1.0.228", features = ["derive"] }

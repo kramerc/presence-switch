@@ -39,6 +39,20 @@ fn open_path(path: &Path) {
     }
 }
 
+async fn run_server(
+    token: CancellationToken,
+    server: impl std::future::Future<Output = Result<(), Box<dyn std::error::Error>>>,
+) -> std::io::Result<()> {
+    // Wake the UI on success, failure, or panic while unwinding the task.
+    let _shutdown = token.drop_guard();
+    server.await.map_err(|error| {
+        tracing::error!("Switch IPC server stopped: {error}");
+        // The server's boxed error is not Send, so carry its message across
+        // the runtime task boundary in an owned, Send error.
+        std::io::Error::other(error.to_string())
+    })
+}
+
 pub fn run() -> Result<(), Box<dyn std::error::Error>> {
     let token = CancellationToken::new();
 
@@ -73,20 +87,15 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
         interrupt_token.cancel();
     });
 
+    // Create the event loop before starting the server so a display setup
+    // failure cannot skip cleanup of a running IPC server.
+    let event_loop = EventLoop::<UserEvent>::with_user_event().build()?;
+
     // Start the switch IPC server on the runtime.
     let server = switch::ipc::Server::new(token.clone())?;
     let server_token = token.clone();
-    let server_handle = runtime.spawn(async move {
-        if let Err(e) = server.start().await {
-            tracing::error!("Switch IPC server stopped: {}", e);
-        }
-
-        // Make sure the event loop exits if the server stops on its own.
-        server_token.cancel();
-    });
-
-    // Run the winit event loop on the main thread until shutdown is requested.
-    let event_loop = EventLoop::<UserEvent>::with_user_event().build()?;
+    let server_handle =
+        runtime.spawn(async move { run_server(server_token, server.start()).await });
 
     // Wake the event loop when shutdown is requested so it can exit.
     let proxy = event_loop.create_proxy();
@@ -121,7 +130,7 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
         return Err(error);
     }
     event_loop_result?;
-    server_result?;
+    server_result??;
 
     Ok(())
 }
@@ -200,5 +209,43 @@ impl ApplicationHandler<UserEvent> for App {
         _event: winit::event::WindowEvent,
     ) {
         // no-op
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::run_server;
+    use tokio_util::sync::CancellationToken;
+
+    #[tokio::test]
+    async fn server_error_is_returned_and_requests_shutdown() {
+        let token = CancellationToken::new();
+        let result = tokio::spawn(run_server(token.clone(), async {
+            Err(std::io::Error::other("bind failed").into())
+        }))
+        .await
+        .unwrap();
+
+        assert_eq!(result.unwrap_err().to_string(), "bind failed");
+        assert!(token.is_cancelled());
+    }
+
+    #[tokio::test]
+    async fn normal_server_exit_requests_shutdown() {
+        let token = CancellationToken::new();
+        run_server(token.clone(), async { Ok(()) }).await.unwrap();
+        assert!(token.is_cancelled());
+    }
+
+    #[tokio::test]
+    async fn server_panic_requests_shutdown() {
+        let token = CancellationToken::new();
+        let result = tokio::spawn(run_server(token.clone(), async {
+            panic!("server panicked");
+        }))
+        .await;
+
+        assert!(result.unwrap_err().is_panic());
+        assert!(token.is_cancelled());
     }
 }

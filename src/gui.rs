@@ -90,7 +90,17 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
 
     // Create the event loop before starting the server so a display setup
     // failure cannot skip cleanup of a running IPC server.
-    let event_loop = EventLoop::<UserEvent>::with_user_event()
+    let mut builder = EventLoop::<UserEvent>::with_user_event();
+
+    #[cfg(target_os = "macos")]
+    {
+        use winit::platform::macos::{ActivationPolicy, EventLoopBuilderExtMacOS};
+
+        // Keep the menu bar icon without showing the app in the Dock.
+        builder.with_activation_policy(ActivationPolicy::Accessory);
+    }
+
+    let event_loop = builder
         .build()
         .inspect_err(|error| tracing::error!("Failed to initialize tray event loop: {error}"))?;
 

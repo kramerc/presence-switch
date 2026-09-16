@@ -73,6 +73,8 @@ The package installs a per-user systemd unit at `/usr/lib/systemd/user/presence-
 
 Double-click the `.msi` to install per-user (no admin prompt). The installer adds an entry under `HKCU\Software\Microsoft\Windows\CurrentVersion\Run` so presence-switch launches at every logon — inspect or disable it via *Task Manager → Startup apps*. Uninstall via *Settings → Apps & features*.
 
+Release builds run with a system tray icon and no console window. Debug builds retain the console for development. The tray icon is embedded in the executable; no separate image file is needed at runtime.
+
 ## Usage
 
 1. Close Discord or ensure `discord-ipc-0` is not taken
@@ -85,23 +87,50 @@ Double-click the `.msi` to install per-user (no admin prompt). The installer add
 
 For best results, start presence-switch before any Discord instances so it can claim `discord-ipc-0`, which is what most RPC clients connect to by default.
 
-Press `Ctrl+C` to shut down gracefully.
+### Windows tray controls
+
+Open the tray icon's menu (check the notification area's hidden icons if needed):
+
+- **Open Log** opens the log file in Notepad.
+- **Quit** stops the IPC server and exits the application.
+
+### Linux service controls
+
+Linux runs headlessly, without a tray icon or graphical-session requirement in the application. Manage the installed user service with:
+
+```sh
+systemctl --user status presence-switch
+systemctl --user stop presence-switch
+systemctl --user restart presence-switch
+journalctl --user -u presence-switch -f
+```
+
+When running in a terminal, press `Ctrl+C` to request shutdown.
+
+### Logs and troubleshooting
+
+On Windows and macOS, logs are appended to `presence-switch.log` in the system temporary directory (normally `%TEMP%\presence-switch.log` on Windows). **Open Log** opens this file; on macOS it uses the default viewer. If startup fails before the tray appears, open the file manually to check for initialization errors. Failures opening the log itself cannot be recorded there and currently have no fallback dialog.
+
+Desktop logging currently includes TRACE-level RPC payloads and has no rotation or retention limit. The logging policy is tracked in [#29](https://github.com/kramerc/presence-switch/issues/29). Linux writes to stdout, which the systemd user service captures in the journal.
 
 ## Platform support
 
-| Platform | IPC mechanism       |
-|----------|---------------------|
-| Linux    | Unix domain sockets |
-| macOS    | Unix domain sockets |
-| Windows  | Named pipes         |
+| Platform | IPC mechanism | Application interface |
+|----------|---------------|-----------------------|
+| Linux | Unix domain sockets | Headless process / systemd user service |
+| Windows | Named pipes | System tray with Open Log and Quit |
+| macOS | Unix domain sockets | Menu-bar tray implementation; native validation pending |
 
-Platform-specific implementations are selected at compile time via `#[cfg]`.
+Platform-specific implementations are selected at compile time via `#[cfg]`. Tray code and its `tray-icon`, `winit`, and `image` dependencies are enabled only on Windows and macOS.
+
+Windows and macOS use tray controls to manage the background process; Windows release builds also suppress the console window. Linux retains its headless user-service interface. Interactive Windows tray and MSI login-startup validation remain outstanding. macOS build and runtime validation are tracked in [#30](https://github.com/kramerc/presence-switch/issues/30); macOS packaging is tracked separately in [#17](https://github.com/kramerc/presence-switch/issues/17).
 
 ## Project structure
 
 ```
 src/
-├── main.rs
+├── main.rs         # Selects the desktop or headless entry point
+├── gui.rs          # Windows/macOS tray, file logging, and shutdown coordination
 ├── switch/         # IPC server — accepts RPC client connections
 │   └── ipc/
 │       ├── mod.rs      # Server and Client logic

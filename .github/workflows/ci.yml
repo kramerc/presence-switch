@@ -7,9 +7,12 @@ on:
     branches: [main]
 
 # Each PR now spends three runners instead of two, so drop superseded runs.
-# Pushes to main are never cancelled.
+# Pushes get a per-run group so they never share one: GitHub keeps only a
+# single pending run per group and evicts the older one, so a shared group
+# would drop CI for a commit during a burst of pushes to main, even with
+# cancel-in-progress false.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:

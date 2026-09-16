@@ -130,14 +130,14 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
     // The event loop has exited; ensure background tasks wind down and wait for
     // the server to finish before tearing the runtime down.
     token.cancel();
-    let server_result = runtime.block_on(server_handle);
+    let server_result = runtime
+        .block_on(server_handle)
+        .inspect_err(|error| tracing::error!("Switch IPC server task failed: {error}"));
 
     if let Some(error) = app.startup_error {
         return Err(error);
     }
     event_loop_result?;
-    let server_result =
-        server_result.inspect_err(|error| tracing::error!("Switch IPC server task failed: {error}"));
     server_result??;
 
     Ok(())

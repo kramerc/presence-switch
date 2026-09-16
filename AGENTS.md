@@ -11,6 +11,18 @@ This file provides guidance to coding agents (Claude Code, Codex, and others) wh
 - `cargo test <test_name>` — run a single test by name
 - `cargo clippy` — lint
 
+## Commit Messages and PR Merges
+
+- Aim for commit subjects of 50 characters or fewer without sacrificing
+  clarity; this is a guideline, not a strict limit.
+- Wrap commit bodies at 72 characters.
+- This repository allows squash merges only. Summarize the final PR
+  changes and their purpose in the merge commit body instead of listing
+  individual commit messages.
+- Apply these rules when using `gh pr merge`: prepare a wrapped summary
+  and pass it with `--body-file` when performing the squash merge.
+- Preserve the default subject when explicitly requested.
+
 ## What This Project Does
 
 presence-switch is a Discord Rich Presence IPC proxy. It sits between Discord RPC client applications and real Discord instances, acting as a multiplexing switch. The switch binds the first available `discord-ipc-{0..9}` name (preferring `discord-ipc-0`), and relays RPC messages to all other existing `discord-ipc-*` sockets (excluding its own).

@@ -123,7 +123,7 @@ Desktop logging currently includes TRACE-level RPC payloads and has no rotation 
 
 Platform-specific implementations are selected at compile time via `#[cfg]`. Tray code and its `tray-icon`, `winit`, and `image` dependencies are enabled only on Windows and macOS.
 
-Windows compilation, strict Clippy checks, and the 17-test suite have passed locally, including server failure and shutdown tests. Interactive tray and MSI login-startup smoke testing remain outstanding. macOS build and runtime validation are tracked in [#30](https://github.com/kramerc/presence-switch/issues/30); macOS packaging is tracked separately in [#17](https://github.com/kramerc/presence-switch/issues/17).
+Windows and macOS use tray controls to manage the background process; Windows release builds also suppress the console window. Linux retains its headless user-service interface. Interactive Windows tray and MSI login-startup validation remain outstanding. macOS build and runtime validation are tracked in [#30](https://github.com/kramerc/presence-switch/issues/30); macOS packaging is tracked separately in [#17](https://github.com/kramerc/presence-switch/issues/17).
 
 ## Project structure
 

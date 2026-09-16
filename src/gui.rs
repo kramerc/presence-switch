@@ -136,6 +136,8 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
         return Err(error);
     }
     event_loop_result?;
+    let server_result =
+        server_result.inspect_err(|error| tracing::error!("Switch IPC server task failed: {error}"));
     server_result??;
 
     Ok(())

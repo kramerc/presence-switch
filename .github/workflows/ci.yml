@@ -6,24 +6,42 @@ on:
   pull_request:
     branches: [main]
 
+# Each PR now spends three runners instead of two, so drop superseded runs.
+# Pushes to main are never cancelled.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  check:
-    runs-on: ubuntu-latest
+  build:
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+
+    # Windows and macOS compile the tray module (src/gui.rs) and its tests,
+    # which cfg gating excludes from the Linux build entirely. macOS coverage
+    # is aarch64 only; Intel is not a supported architecture.
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: ubuntu-latest, name: Linux (x86_64) }
+          - { os: windows-latest, name: Windows (x86_64-msvc) }
+          - { os: macos-latest, name: macOS (aarch64) }
+
     steps:
       - uses: actions/checkout@v6
+
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy
-      - uses: Swatinem/rust-cache@v2
-      - run: cargo clippy -- -D warnings
 
-  test:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v6
-      - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
+
+      # --all-targets so test code is linted too, including the gui tests.
+      - run: cargo clippy --all-targets -- -D warnings
+
       - run: cargo test

@@ -13,14 +13,10 @@ This file provides guidance to coding agents (Claude Code, Codex, and others) wh
 
 ## Commit Messages and PR Merges
 
-- Aim for commit subjects of 50 characters or fewer without sacrificing
-  clarity; this is a guideline, not a strict limit.
-- Wrap commit bodies at 72 characters.
-- This repository allows squash merges only. Summarize the final PR
-  changes and their purpose in the merge commit body instead of listing
-  individual commit messages.
-- Apply these rules when using `gh pr merge`: prepare a wrapped summary
-  and pass it with `--body-file` when performing the squash merge.
+- Aim for commit subjects of 50 characters or fewer without sacrificing clarity; this is a guideline, not a strict limit.
+- Wrap commit bodies at 72 characters. This rule does not apply to Markdown files such as `AGENTS.md` or `README.md`.
+- This repository allows squash merges only. Summarize the final PR changes and their purpose in the merge commit body instead of listing individual commit messages.
+- Apply these rules when using `gh pr merge`: prepare a wrapped summary and pass it with `--body-file` when performing the squash merge.
 - Preserve the default subject when explicitly requested.
 
 ## What This Project Does

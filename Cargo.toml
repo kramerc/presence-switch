@@ -19,7 +19,7 @@ windows-sys = "0.61.2"
 
 [target.'cfg(any(target_os = "windows", target_os = "macos"))'.dependencies]
 image = { version = "0.25.8", default-features = false, features = ["png"] }
-tray-icon = "0.24.1"
+tray-icon = "0.25.1"
 winit = "0.30.13"
 
 # RPM packaging via cargo-generate-rpm.
